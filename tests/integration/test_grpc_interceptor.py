@@ -104,7 +104,7 @@ class TestHedgedUnaryInterceptor:
                 assert response.request_number == 1
                 assert servicer.echo_call_count == 1
         finally:
-            await server.stop(grace=0)
+            await server.stop(grace=1)
 
     async def test_stats_tracking_unary(self) -> None:
         """Verify stats are tracked for multiple unary RPCs."""
@@ -127,7 +127,7 @@ class TestHedgedUnaryInterceptor:
             snap = interceptor.stats.snapshot()
             assert snap.total_requests == 5
         finally:
-            await server.stop(grace=0)
+            await server.stop(grace=1)
 
     async def test_hedge_fires_on_slow_primary(self) -> None:
         """Verify interceptor processes all requests correctly through warmup and post-warmup.
@@ -172,7 +172,7 @@ class TestHedgedUnaryInterceptor:
             assert snap.total_requests == 30
             assert snap.warmup_requests == 20
         finally:
-            await server.stop(grace=0)
+            await server.stop(grace=1)
 
     async def test_hedge_actually_fires_with_large_delay_gap(self) -> None:
         """End-to-end proof that the unary hedge fires and wins.
@@ -235,7 +235,7 @@ class TestHedgedUnaryInterceptor:
                 f"echo_call_count={servicer.echo_call_count}"
             )
         finally:
-            await server.stop(grace=0)
+            await server.stop(grace=1)
 
     async def test_concurrent_requests_unary(self) -> None:
         """Multiple concurrent unary RPCs are handled correctly."""
@@ -270,7 +270,7 @@ class TestHedgedUnaryInterceptor:
             snap = interceptor.stats.snapshot()
             assert snap.total_requests == 10
         finally:
-            await server.stop(grace=0)
+            await server.stop(grace=1)
 
     async def test_warmup_phase(self) -> None:
         """During warmup, fixed delay is used instead of sketch estimate."""
@@ -296,7 +296,7 @@ class TestHedgedUnaryInterceptor:
             snap = interceptor.stats.snapshot()
             assert snap.warmup_requests == 5
         finally:
-            await server.stop(grace=0)
+            await server.stop(grace=1)
 
     async def test_default_config(self) -> None:
         """Creating interceptor without config should use defaults."""
@@ -339,7 +339,7 @@ class TestHedgedServerStreamInterceptor:
                 assert messages[0].chunk_index == 0
                 assert messages[2].chunk_index == 2
         finally:
-            await server.stop(grace=0)
+            await server.stop(grace=1)
 
     async def test_stats_tracking_stream(self) -> None:
         """Verify stats are tracked for streaming RPCs."""
@@ -368,7 +368,7 @@ class TestHedgedServerStreamInterceptor:
             snap = interceptor.stats.snapshot()
             assert snap.total_requests == 3
         finally:
-            await server.stop(grace=0)
+            await server.stop(grace=1)
 
     async def test_hedge_fires_on_slow_first_chunk(self) -> None:
         """When the first chunk is slow, a hedge should fire based on TTFM."""
@@ -419,7 +419,7 @@ class TestHedgedServerStreamInterceptor:
             assert snap.total_requests == 30
             assert snap.hedged_requests > 0
         finally:
-            await server.stop(grace=0)
+            await server.stop(grace=1)
 
     async def test_single_chunk_stream(self) -> None:
         """Verify a stream with only one chunk works correctly."""
@@ -448,7 +448,7 @@ class TestHedgedServerStreamInterceptor:
                 assert len(messages) == 1
                 assert messages[0].message == "single"
         finally:
-            await server.stop(grace=0)
+            await server.stop(grace=1)
 
     async def test_warmup_phase_stream(self) -> None:
         """During warmup, fixed delay is used for streaming interceptor."""
@@ -481,7 +481,7 @@ class TestHedgedServerStreamInterceptor:
             snap = interceptor.stats.snapshot()
             assert snap.warmup_requests == 5
         finally:
-            await server.stop(grace=0)
+            await server.stop(grace=1)
 
     async def test_default_config_stream(self) -> None:
         """Creating streaming interceptor without config should use defaults."""
