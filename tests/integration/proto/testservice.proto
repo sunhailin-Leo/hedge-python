@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package testservice;
+
+service TestService {
+  // Unary RPC: simple echo with configurable delay.
+  rpc Echo (EchoRequest) returns (EchoResponse);
+
+  // Server streaming RPC: streams N messages with configurable delay.
+  rpc StreamEcho (StreamEchoRequest) returns (stream StreamEchoResponse);
+}
+
+message EchoRequest {
+  string message = 1;
+  // Simulated processing delay in milliseconds.
+  int32 delay_ms = 2;
+}
+
+message EchoResponse {
+  string message = 1;
+  int32 request_number = 2;
+}
+
+message StreamEchoRequest {
+  string message = 1;
+  // Number of response chunks to stream.
+  int32 count = 2;
+  // Delay before the first chunk in milliseconds.
+  int32 first_chunk_delay_ms = 3;
+  // Delay between subsequent chunks in milliseconds.
+  int32 inter_chunk_delay_ms = 4;
+}
+
+message StreamEchoResponse {
+  string message = 1;
+  int32 chunk_index = 2;
+}

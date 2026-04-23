@@ -1,0 +1,96 @@
+[project]
+name = "hedge-python"
+version = "0.1.0"
+description = "Adaptive hedged request library for Python. Learns per-host latency via DDSketch, fires backup requests at estimated p90, caps hedge rate with token bucket."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [{ name = "LeoSun", email = "sunhailin.shl@antgroup.com" }]
+keywords = ["hedge", "latency", "tail-latency", "ddsketch", "grpc", "httpx", "aiohttp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+    "Framework :: AsyncIO",
+    "Typing :: Typed",
+]
+
+dependencies = []
+
+[project.optional-dependencies]
+httpx = ["httpx>=0.24.0"]
+aiohttp = ["aiohttp>=3.9.0"]
+grpc = ["grpcio>=1.50.0", "protobuf>=4.21.0"]
+all = ["httpx>=0.24.0", "aiohttp>=3.9.0", "grpcio>=1.50.0", "protobuf>=4.21.0"]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0",
+    "pytest-benchmark>=4.0",
+    "httpx>=0.24.0",
+    "aiohttp>=3.9.0",
+    "grpcio>=1.50.0",
+    "grpcio-tools>=1.50.0",
+    "protobuf>=4.21.0",
+    "ruff>=0.4.0",
+    "mypy>=1.0",
+    "matplotlib>=3.7.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hedge"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "benchmark: benchmark tests",
+    "integration: integration tests requiring network or servers",
+]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+src = ["src", "tests"]
+extend-exclude = [
+    # protoc / grpc_tools generated files — we don't hand-edit these.
+    "tests/integration/proto/*_pb2.py",
+    "tests/integration/proto/*_pb2_grpc.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "TCH"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["hedge"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.coverage.run]
+source = ["src/hedge"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.",
+]
