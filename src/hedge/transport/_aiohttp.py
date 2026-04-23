@@ -29,6 +29,9 @@ except ImportError as exc:
 from hedge._options import HedgeConfig
 from hedge.transport._base import HedgeScheduler
 
+if TYPE_CHECKING:
+    from hedge._stats import Stats
+
 
 class HedgedAiohttpSession:
     """An aiohttp session wrapper that adds adaptive hedged requests.
@@ -58,7 +61,7 @@ class HedgedAiohttpSession:
         return self._session
 
     @property
-    def stats(self):  # type: ignore[override]
+    def stats(self) -> Stats:
         """Access the live Stats object."""
         return self._scheduler.stats
 

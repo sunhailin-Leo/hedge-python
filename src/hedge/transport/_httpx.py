@@ -13,6 +13,8 @@ Usage::
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 try:
     import httpx
 except ImportError as exc:
@@ -23,6 +25,9 @@ except ImportError as exc:
 
 from hedge._options import HedgeConfig
 from hedge.transport._base import HedgeScheduler
+
+if TYPE_CHECKING:
+    from hedge._stats import Stats
 
 
 class HedgedHttpxTransport(httpx.AsyncBaseTransport):
@@ -48,7 +53,7 @@ class HedgedHttpxTransport(httpx.AsyncBaseTransport):
         self._scheduler = HedgeScheduler(self._config)
 
     @property
-    def stats(self):  # type: ignore[override]
+    def stats(self) -> Stats:
         """Access the live Stats object."""
         return self._scheduler.stats
 

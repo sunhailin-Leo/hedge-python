@@ -113,13 +113,19 @@ class TestHedgedAiohttpSession:
         """PUT / DELETE / OPTIONS pass through the session correctly.
 
         PUT and DELETE are non-idempotent here so they must not be hedged;
-        OPTIONS is hedgeable but with a fast handler should not actually fire
-        a hedge. The point of this test is purely to cover the three thin
-        method wrappers in :class:`HedgedAiohttpSession`.
+        OPTIONS is hedgeable but with a generous warmup_delay should not
+        actually fire a hedge. The point of this test is purely to cover the
+        three thin method wrappers in :class:`HedgedAiohttpSession`.
+
+        ``warmup_requests`` is set high enough that all three requests go
+        through the warmup branch (avoiding sketch-driven delay estimates),
+        and ``warmup_delay`` is generous enough to absorb scheduler jitter
+        on slower CI runners (notably Windows, where ``asyncio.sleep``
+        precision can exceed 15ms).
         """
         runner, base_url = await _start_test_server()
         try:
-            config = HedgeConfig(min_delay=0.001, warmup_requests=0, warmup_delay=0.05)
+            config = HedgeConfig(min_delay=0.001, warmup_requests=10, warmup_delay=2.0)
             async with HedgedAiohttpSession(config=config) as session:
                 resp = await session.put(f"{base_url}/test")
                 assert resp.status == 200
@@ -131,7 +137,8 @@ class TestHedgedAiohttpSession:
                 assert resp.status == 200
 
                 snap = session.stats.snapshot()
-                # 3 requests went through; PUT/DELETE never hedge.
+                # 3 requests went through; PUT/DELETE never hedge, and OPTIONS
+                # finishes well within the warmup_delay.
                 assert snap.total_requests == 3
                 assert snap.hedged_requests == 0
         finally:

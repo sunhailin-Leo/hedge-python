@@ -124,7 +124,7 @@ class DDSketch:
         if q >= 1:
             return self._max
 
-        rank = math.ceil(q * self._count)
+        rank: float = float(math.ceil(q * self._count))
 
         # Negative values: iterate descending (most negative -> least negative)
         if self._negative.count > 0:

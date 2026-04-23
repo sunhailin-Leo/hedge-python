@@ -24,8 +24,8 @@ from collections import defaultdict
 from typing import Any, Callable
 
 try:
-    import grpc
-    import grpc.aio
+    import grpc  # type: ignore[import-untyped]
+    import grpc.aio  # type: ignore[import-untyped]
 except ImportError as exc:
     raise ImportError(
         "grpcio is required for gRPC interceptors. "
@@ -38,7 +38,7 @@ from hedge.budget import TokenBucket
 from hedge.sketch import WindowedSketch
 
 
-class HedgedUnaryInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
+class HedgedUnaryInterceptor(grpc.aio.UnaryUnaryClientInterceptor):  # type: ignore[misc]
     """gRPC Unary-Unary client interceptor with adaptive hedging.
 
     Learns per-target latency distributions and fires a backup RPC when the
@@ -97,7 +97,7 @@ class HedgedUnaryInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
         # immediately; the actual RTT is spent in ``await call``. We must
         # combine both steps inside the task, otherwise the task completes
         # instantly and the hedge timer never fires.
-        call_holder: dict[asyncio.Task, Any] = {}
+        call_holder: dict[asyncio.Task[Any], Any] = {}
 
         async def invoke() -> Any:
             call = await continuation(client_call_details, request)
@@ -158,7 +158,7 @@ class HedgedUnaryInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
         return response
 
 
-class HedgedServerStreamInterceptor(grpc.aio.UnaryStreamClientInterceptor):
+class HedgedServerStreamInterceptor(grpc.aio.UnaryStreamClientInterceptor):  # type: ignore[misc]
     """gRPC Unary-Stream (server streaming) client interceptor with adaptive hedging.
 
     Uses time-to-first-message (TTFM) as the hedge signal: if the primary
@@ -216,7 +216,7 @@ class HedgedServerStreamInterceptor(grpc.aio.UnaryStreamClientInterceptor):
         # Combine ``await continuation`` (which may itself include connection
         # setup / header round-trips) and ``call.read()`` (TTFM) in one task,
         # so the timer reflects the real time-to-first-message.
-        call_holder: dict[asyncio.Task, Any] = {}
+        call_holder: dict[asyncio.Task[Any], Any] = {}
 
         async def invoke_and_read_first() -> tuple[Any, Any]:
             call = await continuation(client_call_details, request)

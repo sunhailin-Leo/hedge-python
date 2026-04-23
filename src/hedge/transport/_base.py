@@ -7,14 +7,14 @@ import contextlib
 import math
 import time
 from collections import defaultdict
-from typing import TYPE_CHECKING, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
 
 from hedge._stats import Stats
 from hedge.budget import TokenBucket
 from hedge.sketch import WindowedSketch
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
+    from collections.abc import Awaitable, Coroutine
 
     from hedge._options import HedgeConfig
 
@@ -94,13 +94,17 @@ class HedgeScheduler:
         hedge_delay = self.compute_hedge_delay(host, request_number)
         start = time.monotonic()
 
-        # Launch primary
-        primary_task = asyncio.create_task(primary_func())
+        # Launch primary. ``primary_func()`` returns ``Awaitable[T]`` in the
+        # signature, but in practice transports always supply ``async def``
+        # callables (i.e. coroutine functions). ``asyncio.create_task`` only
+        # accepts coroutines, so cast for the type checker.
+        primary_coro = cast("Coroutine[Any, Any, T]", primary_func())
+        primary_task: asyncio.Task[T] = asyncio.create_task(primary_coro)
 
         # Wait for hedge delay
         done, _ = await asyncio.wait({primary_task}, timeout=hedge_delay)
         if done:
-            result = primary_task.result()
+            result: T = primary_task.result()
             elapsed = time.monotonic() - start
             record_latency(result, elapsed)
             return result
@@ -122,7 +126,8 @@ class HedgeScheduler:
 
         # Launch hedge
         self.stats.increment_hedged()
-        hedge_task = asyncio.create_task(hedge_func())
+        hedge_coro = cast("Coroutine[Any, Any, T]", hedge_func())
+        hedge_task: asyncio.Task[T] = asyncio.create_task(hedge_coro)
 
         done, pending = await asyncio.wait(
             {primary_task, hedge_task},
