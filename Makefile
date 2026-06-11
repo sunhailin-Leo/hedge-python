@@ -45,9 +45,9 @@ bench-multi:
 bench-plot:
 	uv run python benchmark/plot.py
 
-# Coverage report
+# Coverage report (excludes benchmarks for speed)
 coverage: install
-	uv run pytest tests/ --cov=src/hedge --cov-report=term-missing --cov-report=html
+	uv run pytest tests/ --cov=src/hedge --cov-report=term-missing --cov-report=html --ignore=tests/benchmark
 
 # Run full CI checks locally
 ci: lint typecheck test coverage

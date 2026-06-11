@@ -27,11 +27,14 @@ def extract_host(url: str) -> str:
 
     Returns ``hostname:port`` (when port is present) or just ``hostname``,
     stripping any userinfo (``user:pass@``) to avoid retaining credentials
-    in per-host sketch keys.
+    in per-host sketch keys. IPv6 addresses are bracket-wrapped when a port
+    is present to keep the key unambiguous (e.g. ``[::1]:8080``).
     """
     parsed = urlparse(url)
     hostname = parsed.hostname or ""
     if parsed.port:
+        if ":" in hostname:
+            return f"[{hostname}]:{parsed.port}"
         return f"{hostname}:{parsed.port}"
     return hostname or url
 

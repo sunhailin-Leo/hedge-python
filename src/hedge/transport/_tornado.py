@@ -81,7 +81,13 @@ class HedgedTornadoClient:
         Returns:
             The ``HTTPResponse`` from whichever request finishes first.
         """
-        request_obj = HTTPRequest(request, **kwargs) if isinstance(request, str) else request
+        if isinstance(request, str):
+            fetch_kwargs = dict(kwargs)
+            per_request_raise_error = fetch_kwargs.pop("raise_error", self._raise_error)
+            request_obj = HTTPRequest(request, **fetch_kwargs)
+        else:
+            request_obj = request
+            per_request_raise_error = self._raise_error
 
         host = extract_host(request_obj.url)
         sketch = self._scheduler.sketch_for(host)
@@ -92,7 +98,7 @@ class HedgedTornadoClient:
         async def do_request() -> HTTPResponse:
             return await self._client.fetch(
                 request_obj,
-                raise_error=self._raise_error,
+                raise_error=per_request_raise_error,
             )
 
         def record_latency(response: HTTPResponse, elapsed: float) -> None:
