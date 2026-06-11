@@ -37,7 +37,6 @@ class HedgeScheduler:
         self.budget = TokenBucket(config.budget_percent, config.estimated_rps)
         self._sketches: dict[str, WindowedSketch] = {}
         self._counters: dict[str, int] = defaultdict(int)
-        self._lock = asyncio.Lock()
 
     def sketch_for(self, host: str) -> WindowedSketch:
         """Get or create a WindowedSketch for the given host."""
@@ -50,11 +49,14 @@ class HedgeScheduler:
             self._sketches[host] = sketch
         return self._sketches[host]
 
-    async def increment_counter(self, host: str) -> int:
-        """Atomically increment and return the request counter for a host."""
-        async with self._lock:
-            self._counters[host] += 1
-            return self._counters[host]
+    def increment_counter(self, host: str) -> int:
+        """Increment and return the request counter for a host.
+
+        Safe without a lock because asyncio is single-threaded and this
+        method contains no ``await`` suspension points.
+        """
+        self._counters[host] += 1
+        return self._counters[host]
 
     def compute_hedge_delay(self, host: str, request_number: int) -> float:
         """Compute the hedge delay in seconds for a given host and request number."""
@@ -90,7 +92,7 @@ class HedgeScheduler:
         """
         self.stats.increment_total()
 
-        request_number = await self.increment_counter(host)
+        request_number = self.increment_counter(host)
         hedge_delay = self.compute_hedge_delay(host, request_number)
         start = time.monotonic()
 

@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/sunhailin-Leo/hedge-python/actions/workflows/ci.yml/badge.svg)](https://github.com/sunhailin-Leo/hedge-python/actions)
 [![Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen.svg)](#テスト)
-[![Python](https://img.shields.io/badge/python-3.9%E2%80%933.13-blue.svg)](pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.9%E2%80%933.14-blue.svg)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > 📘 公式ドキュメントは **[英語版](README.md)** が主です。本書は概要をすばやく把握するための日本語訳です。
@@ -15,7 +15,8 @@
 `hedge-python` は [DDSketch](https://arxiv.org/abs/2004.08604) を用いてホストごとのレイテンシ分布を学習し、
 プライマリリクエストが推定 p90 を超えた時点でバックアップリクエストを発射、
 さらにトークンバケットでヘッジレートを制限することで、障害時の負荷増幅を防ぎます。
-**設定不要** で、**httpx**、**aiohttp**、**gRPC**（unary + server-streaming）を第一級でサポートします。
+**設定不要** で、**httpx**、**aiohttp**、**niquests**、**tornado**、**gRPC**（unary + server-streaming）を第一級でサポートします。
+`http_client` パラメータ経由で **OpenAI Python SDK** とのシームレスな統合もサポートしています。
 
 Dean & Barroso の [_The Tail at Scale_](https://research.google/pubs/the-tail-at-scale/)（CACM 2013）に着想を得ています。
 
@@ -52,6 +53,8 @@ Dean & Barroso の [_The Tail at Scale_](https://research.google/pubs/the-tail-a
 # 必要なフレームワーク向けにインストール
 pip install hedge-python[httpx]
 pip install hedge-python[aiohttp]
+pip install hedge-python[niquests]
+pip install hedge-python[tornado]
 pip install hedge-python[grpc]
 pip install hedge-python[all]   # 全フレームワーク
 ```
@@ -116,6 +119,59 @@ async def make_channel():
         interceptors=[HedgedServerStreamInterceptor(config=HedgeConfig())],
     )
 ```
+
+### niquests
+
+```python
+import asyncio
+from hedge import HedgeConfig
+from hedge.transport import HedgedNiquestsSession
+
+async def main():
+    async with HedgedNiquestsSession(config=HedgeConfig()) as session:
+        resp = await session.get("https://api.example.com/data")
+        print(resp.status_code)
+
+asyncio.run(main())
+```
+
+### tornado
+
+```python
+import asyncio
+from hedge import HedgeConfig
+from hedge.transport import HedgedTornadoClient
+
+async def main():
+    async with HedgedTornadoClient(config=HedgeConfig()) as client:
+        resp = await client.fetch("https://api.example.com/data")
+        print(resp.code)
+
+asyncio.run(main())
+```
+
+### OpenAI SDK
+
+OpenAI Python SDK は内部で httpx を使用しているため、`http_client` パラメータ経由で
+`HedgedHttpxTransport` を直接注入できます：
+
+```python
+import httpx
+from openai import AsyncOpenAI
+from hedge import HedgeConfig
+from hedge.transport import HedgedHttpxTransport
+
+transport = HedgedHttpxTransport(config=HedgeConfig(percentile=0.95))
+client = AsyncOpenAI(
+    api_key="sk-...",
+    http_client=httpx.AsyncClient(transport=transport),
+)
+```
+
+> **注意**: OpenAI のコア API（Chat Completions、Embeddings など）は POST を使用するため、
+> デフォルトではヘッジ **されません** —— 二重課金を回避するためです。GET エンドポイント
+>（モデル一覧など）のみがヘッジされます。完全な例は
+> [`examples/openai_hedged.py`](examples/openai_hedged.py) を参照してください。
 
 server-streaming におけるヘッジ信号は **TTFM（Time To First Message）** です。
 プライマリストリームが推定 p90 までに最初の chunk を返さなければ、バックアップストリームを起動します。
@@ -240,7 +296,7 @@ make ci                 # lint + typecheck + test + coverage
 * **結合テスト** (`tests/integration/`): 実 httpx transport、実 aiohttp session、**実ローカル gRPC サーバ**（`.proto` + 生成 pb2 込み）。
 * **ベンチマーク** (`tests/benchmark/`): DDSketch マイクロベンチ、トークンバケットマイクロベンチ、4 構成比較、3 フレームワーク比較。
 
-現在のカバレッジ: **97%**（122 テスト、約 7 秒）。
+現在のカバレッジ: **97%**（150 テスト、約 7 秒）。
 
 ---
 

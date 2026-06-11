@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-06-11
+
+### Added
+
+- **niquests adapter**: `HedgedNiquestsSession` — drop-in wrapper for
+  `niquests.AsyncSession` with adaptive hedging on `GET`/`HEAD`/`OPTIONS`.
+- **tornado adapter**: `HedgedTornadoClient` — wraps
+  `tornado.httpclient.AsyncHTTPClient` with adaptive hedging via `fetch()`.
+- **OpenAI integration example** (`examples/openai_hedged.py`): demonstrates
+  injecting `HedgedHttpxTransport` into `openai.AsyncOpenAI` via `http_client`.
+- New examples: `examples/niquests_basic.py`, `examples/tornado_basic.py`.
+- Lazy-import registry refactored to a data-driven `_LAZY_IMPORTS` dict
+  in `hedge.transport.__init__` for easier extensibility.
+- `pyproject.toml` optional extras: `[niquests]`, `[tornado]` (also added
+  to `[all]` and `[dev]`).
+- Comprehensive unit tests for niquests and tornado adapters (24 new tests).
+- Import-error tests for `niquests`, `tornado`, and `grpc` modules.
+- Additional coverage tests: `TokenBucket.set_rps` truncation, `WindowedSketch`
+  double-start idempotency, `DDSketch` quantile edge cases, gRPC interceptor
+  `current_task()` None branch and `_PrependedStream` EOF.
+
+### Changed
+
+- `Makefile`: `test`, `test-unit`, `test-integration`, and `coverage` targets
+  now depend on `install` to ensure all extras are available before running.
+- `examples/README.md` updated with new framework entries.
+
+### Other
+
+- Test coverage: **97%** (150 tests).
+- Supports Python 3.9 → 3.14.
+
 ## [0.1.0] - 2026-04-23
 
 ### Added
@@ -61,5 +93,6 @@ _Initial release — nothing removed._
   `[grpc]`, `[all]`, `[dev]`.
 - Supports Python 3.9 → 3.14.
 
-[Unreleased]: https://github.com/sunhailin-Leo/hedge-python/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sunhailin-Leo/hedge-python/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sunhailin-Leo/hedge-python/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sunhailin-Leo/hedge-python/releases/tag/v0.1.0

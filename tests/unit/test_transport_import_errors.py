@@ -55,8 +55,16 @@ def isolate_modules() -> Iterator[None]:
         for name in (
             "httpx",
             "aiohttp",
+            "niquests",
+            "tornado",
+            "tornado.httpclient",
+            "grpc",
+            "grpc.aio",
             "hedge.transport._httpx",
             "hedge.transport._aiohttp",
+            "hedge.transport._niquests",
+            "hedge.transport._tornado",
+            "hedge.interceptor._grpc",
         )
     }
     yield
@@ -77,3 +85,21 @@ def test_aiohttp_session_raises_friendly_import_error(isolate_modules: None) -> 
     """``HedgedAiohttpSession`` import without aiohttp must point at the extra."""
     with pytest.raises(ImportError, match=r"hedge-python\[aiohttp\]"):
         _reload_with_missing("aiohttp", "hedge.transport._aiohttp")
+
+
+def test_niquests_session_raises_friendly_import_error(isolate_modules: None) -> None:
+    """``HedgedNiquestsSession`` import without niquests must point at the extra."""
+    with pytest.raises(ImportError, match=r"hedge-python\[niquests\]"):
+        _reload_with_missing("niquests", "hedge.transport._niquests")
+
+
+def test_tornado_client_raises_friendly_import_error(isolate_modules: None) -> None:
+    """``HedgedTornadoClient`` import without tornado must point at the extra."""
+    with pytest.raises(ImportError, match=r"hedge-python\[tornado\]"):
+        _reload_with_missing("tornado.httpclient", "hedge.transport._tornado")
+
+
+def test_grpc_interceptor_raises_friendly_import_error(isolate_modules: None) -> None:
+    """``HedgedUnaryInterceptor`` import without grpcio must point at the extra."""
+    with pytest.raises(ImportError, match=r"hedge-python\[grpc\]"):
+        _reload_with_missing("grpc", "hedge.interceptor._grpc")

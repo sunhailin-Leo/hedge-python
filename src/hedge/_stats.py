@@ -21,27 +21,29 @@ class Stats:
         self.budget_exhausted: int = 0
         self.warmup_requests: int = 0
 
-    def _increment(self, field: str, value: int = 1) -> None:
-        with self._lock:
-            setattr(self, field, getattr(self, field) + value)
-
     def increment_total(self) -> None:
-        self._increment("total_requests")
+        with self._lock:
+            self.total_requests += 1
 
     def increment_hedged(self) -> None:
-        self._increment("hedged_requests")
+        with self._lock:
+            self.hedged_requests += 1
 
     def increment_hedge_wins(self) -> None:
-        self._increment("hedge_wins")
+        with self._lock:
+            self.hedge_wins += 1
 
     def increment_primary_wins(self) -> None:
-        self._increment("primary_wins")
+        with self._lock:
+            self.primary_wins += 1
 
     def increment_budget_exhausted(self) -> None:
-        self._increment("budget_exhausted")
+        with self._lock:
+            self.budget_exhausted += 1
 
     def increment_warmup(self) -> None:
-        self._increment("warmup_requests")
+        with self._lock:
+            self.warmup_requests += 1
 
     def snapshot(self) -> StatsSnapshot:
         """Take a consistent point-in-time copy of all counters."""

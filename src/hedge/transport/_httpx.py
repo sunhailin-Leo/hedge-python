@@ -19,8 +19,7 @@ try:
     import httpx
 except ImportError as exc:
     raise ImportError(
-        "httpx is required for HedgedHttpxTransport. "
-        "Install it with: pip install hedge-python[httpx]"
+        "httpx is required for HedgedHttpxTransport. Install it with: pip install hedge-python[httpx]"
     ) from exc
 
 from hedge._options import HedgeConfig

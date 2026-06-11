@@ -40,7 +40,7 @@ class WindowedSketch:
             window_duration = _DEFAULT_WINDOW_DURATION
         self._relative_accuracy = relative_accuracy
         self._window_duration = window_duration
-        self._lock = threading.RLock()
+        self._lock = threading.Lock()
         self._current = DDSketch(relative_accuracy)
         self._previous = DDSketch(relative_accuracy)
         # Sync rotation

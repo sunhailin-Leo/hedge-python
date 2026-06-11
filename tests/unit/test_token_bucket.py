@@ -75,3 +75,15 @@ class TestTokenBucketSetRPS:
             pass
         time.sleep(0.1)  # 20 * 0.1 = 2 tokens
         assert bucket.try_acquire()
+
+    def test_set_rps_truncates_tokens_to_new_max_burst(self) -> None:
+        """When RPS drops, accumulated tokens should be capped at the new max_burst."""
+        # Start with high RPS: rate=100*10%=10, max_burst=20
+        bucket = TokenBucket(budget_percent=10.0, estimated_rps=100.0)
+        # Let tokens refill to max_burst
+        time.sleep(0.3)
+        # Now drop RPS dramatically: rate=1*10%=0.1, max_burst=max(0.2,1)=1
+        bucket.set_rps(1.0)
+        # Tokens should be truncated to new max_burst (1.0)
+        assert bucket.try_acquire()
+        assert not bucket.try_acquire()

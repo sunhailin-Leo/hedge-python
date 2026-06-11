@@ -3,6 +3,9 @@
 Spins up real local servers for each framework with identical lognormal latency
 and straggler distributions, then measures tail-latency improvement under hedge.
 
+All frameworks use real network connections (TCP over loopback) to ensure
+fair, apples-to-apples comparison of hedge effectiveness.
+
 For each framework we run:
   1. No hedging  — baseline
   2. Adaptive (hedge) — DDSketch-based dynamic delay
@@ -98,30 +101,46 @@ class BenchmarkResult:
     def percentiles(self) -> dict[str, float]:
         sorted_lat = sorted(self.latencies)
         return {
-            label: _percentile(sorted_lat, quantile)
-            for label, quantile in zip(PERCENTILE_LABELS, PERCENTILE_VALUES)
+            label: _percentile(sorted_lat, quantile) for label, quantile in zip(PERCENTILE_LABELS, PERCENTILE_VALUES)
         }
 
 
 # ---------------------------------------------------------------------------
-# httpx: simulated transport (no real server needed)
+# httpx: real local server with simulated latency
 # ---------------------------------------------------------------------------
-class _HttpxSimBackend(httpx.AsyncBaseTransport):
-    """In-memory httpx transport with lognormal+straggler latency."""
+class _HttpxServer:
+    """Local HTTP server for httpx benchmarks with lognormal+straggler latency."""
 
     def __init__(self, rng: random.Random) -> None:
         self._rng = rng
-        self._call_count = 0
+        self.call_count = 0
+        self._runner: aiohttp.web.AppRunner | None = None
+        self._site: aiohttp.web.TCPSite | None = None
+        self.port: int = 0
 
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        self._call_count += 1
+    async def _handle(self, _request: aiohttp.web.Request) -> aiohttp.web.Response:
+        self.call_count += 1
         latency_ms = _sample_latency_ms(self._rng)
         await asyncio.sleep(latency_ms / 1000.0)
-        return httpx.Response(200, text="ok")
+        return aiohttp.web.Response(text="ok")
 
-    @property
-    def call_count(self) -> int:
-        return self._call_count
+    async def start(self) -> None:
+        from aiohttp import web
+
+        app = web.Application()
+        app.router.add_get("/api", self._handle)
+        self._runner = web.AppRunner(app)
+        await self._runner.setup()
+        self._site = web.TCPSite(self._runner, "127.0.0.1", 0)
+        await self._site.start()
+        server = self._site._server  # type: ignore[attr-defined]
+        sockets = server.sockets if server else None
+        assert sockets, "httpx backend server failed to bind socket"
+        self.port = sockets[0].getsockname()[1]
+
+    async def stop(self) -> None:
+        if self._runner is not None:
+            await self._runner.cleanup()
 
 
 # ---------------------------------------------------------------------------
@@ -225,32 +244,37 @@ async def _run_httpx(
     seed: int,
 ) -> BenchmarkResult:
     rng = random.Random(seed)
-    backend = _HttpxSimBackend(rng)
-    transport: httpx.AsyncBaseTransport
+    server = _HttpxServer(rng)
+    await server.start()
+    base_url = f"http://127.0.0.1:{server.port}"
+
     stats: Stats | None
-    if config_name == "No hedging":
-        transport = backend
-        stats = None
-    else:
-        hedged = HedgedHttpxTransport(inner=backend, config=_adaptive_config())
-        transport = hedged
-        stats = hedged.stats
-
     latencies: list[float] = []
-    async with httpx.AsyncClient(transport=transport, base_url="http://sim") as client:
-        for _ in range(REQUEST_COUNT):
-            start = time.monotonic()
-            await client.get("/api")
-            latencies.append((time.monotonic() - start) * 1000.0)
-
-    if isinstance(transport, HedgedHttpxTransport):
-        await transport.aclose()
+    try:
+        if config_name == "No hedging":
+            stats = None
+            async with httpx.AsyncClient(base_url=base_url) as client:
+                for _ in range(REQUEST_COUNT):
+                    start = time.monotonic()
+                    await client.get("/api")
+                    latencies.append((time.monotonic() - start) * 1000.0)
+        else:
+            hedged = HedgedHttpxTransport(config=_adaptive_config())
+            stats = hedged.stats
+            async with httpx.AsyncClient(transport=hedged, base_url=base_url) as client:
+                for _ in range(REQUEST_COUNT):
+                    start = time.monotonic()
+                    await client.get("/api")
+                    latencies.append((time.monotonic() - start) * 1000.0)
+            await hedged.aclose()
+    finally:
+        await server.stop()
 
     return BenchmarkResult(
         framework="httpx",
         name=config_name,
         latencies=latencies,
-        backend_calls=backend.call_count,
+        backend_calls=server.call_count,
         stats=stats,
     )
 
@@ -345,12 +369,8 @@ _RUNNERS = {
 # Output helpers
 # ---------------------------------------------------------------------------
 def _print_markdown_table(results: list[BenchmarkResult]) -> None:
-    header = (
-        "| Framework | Configuration       |  p50  |  p90  |   p95  |   p99  |  p999   | Overhead |"
-    )
-    separator = (
-        "|-----------|---------------------|-------|-------|--------|--------|---------|----------|"
-    )
+    header = "| Framework | Configuration       |  p50  |  p90  |   p95  |   p99  |  p999   | Overhead |"
+    separator = "|-----------|---------------------|-------|-------|--------|--------|---------|----------|"
     print(f"\n{header}")
     print(separator)
     for result in results:
@@ -388,12 +408,14 @@ def _write_csv(results: list[BenchmarkResult]) -> str:
         writer.writerow(["framework", "configuration", *PERCENTILE_LABELS, "overhead_pct"])
         for result in results:
             pcts = result.percentiles()
-            writer.writerow([
-                result.framework,
-                result.name,
-                *[f"{pcts[label]:.1f}" for label in PERCENTILE_LABELS],
-                f"{result.overhead_percent:.1f}",
-            ])
+            writer.writerow(
+                [
+                    result.framework,
+                    result.name,
+                    *[f"{pcts[label]:.1f}" for label in PERCENTILE_LABELS],
+                    f"{result.overhead_percent:.1f}",
+                ]
+            )
     return RESULTS_CSV
 
 
@@ -438,12 +460,8 @@ class TestMultiFrameworkComparison:
 
         # --- Sanity assertion: hedge should not regress p99 dramatically ---
         for framework in FRAMEWORKS:
-            no_hedge = next(
-                r for r in results if r.framework == framework and r.name == "No hedging"
-            )
-            adaptive = next(
-                r for r in results if r.framework == framework and r.name == "Adaptive (hedge)"
-            )
+            no_hedge = next(r for r in results if r.framework == framework and r.name == "No hedging")
+            adaptive = next(r for r in results if r.framework == framework and r.name == "Adaptive (hedge)")
             no_hedge_p99 = no_hedge.percentiles()["p99"]
             adaptive_p99 = adaptive.percentiles()["p99"]
             print(f"  [{framework}] p99: {no_hedge_p99:.1f}ms -> {adaptive_p99:.1f}ms")

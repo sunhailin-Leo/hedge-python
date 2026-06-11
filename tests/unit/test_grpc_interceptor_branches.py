@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import grpc
 import pytest
@@ -112,9 +113,7 @@ class TestUnaryInterceptorBranches:
         async def continuation(_details: Any, _request: Any) -> _FakeUnaryCall:
             return _FakeUnaryCall(response="primary", delay=0.05)
 
-        result = await interceptor.intercept_unary_unary(
-            continuation, _make_call_details(), object()
-        )
+        result = await interceptor.intercept_unary_unary(continuation, _make_call_details(), object())
         assert result == "primary"
 
         snap = interceptor.stats.snapshot()
@@ -143,9 +142,7 @@ class TestUnaryInterceptorBranches:
                 return slow
             return _FakeUnaryCall(response="hedge", delay=0.01)
 
-        result = await interceptor.intercept_unary_unary(
-            continuation, _make_call_details(), object()
-        )
+        result = await interceptor.intercept_unary_unary(continuation, _make_call_details(), object())
         assert result == "hedge"
 
         snap = interceptor.stats.snapshot()
@@ -172,9 +169,7 @@ class TestUnaryInterceptorBranches:
                 return _FakeUnaryCall(response="primary", delay=0.5, raise_on_cancel=True)
             return _FakeUnaryCall(response="hedge", delay=0.01)
 
-        result = await interceptor.intercept_unary_unary(
-            continuation, _make_call_details(), object()
-        )
+        result = await interceptor.intercept_unary_unary(continuation, _make_call_details(), object())
         assert result == "hedge"
 
     async def test_primary_wins_when_fast_enough(self) -> None:
@@ -191,9 +186,7 @@ class TestUnaryInterceptorBranches:
         async def continuation(_details: Any, _request: Any) -> _FakeUnaryCall:
             return _FakeUnaryCall(response="primary", delay=0.001)
 
-        result = await interceptor.intercept_unary_unary(
-            continuation, _make_call_details(), object()
-        )
+        result = await interceptor.intercept_unary_unary(continuation, _make_call_details(), object())
         assert result == "primary"
         snap = interceptor.stats.snapshot()
         assert snap.hedged_requests == 0
@@ -219,9 +212,7 @@ class TestServerStreamInterceptorBranches:
         async def continuation(_details: Any, _request: Any) -> _FakeStreamCall:
             return _FakeStreamCall(first_msg="chunk-1", delay=0.05)
 
-        stream = await interceptor.intercept_unary_stream(
-            continuation, _make_call_details(), object()
-        )
+        stream = await interceptor.intercept_unary_stream(continuation, _make_call_details(), object())
         first = await stream.__anext__()
         assert first == "chunk-1"
 
@@ -249,9 +240,7 @@ class TestServerStreamInterceptorBranches:
                 return slow
             return _FakeStreamCall(first_msg="hedge-first", delay=0.01)
 
-        stream = await interceptor.intercept_unary_stream(
-            continuation, _make_call_details(), object()
-        )
+        stream = await interceptor.intercept_unary_stream(continuation, _make_call_details(), object())
         first = await stream.__anext__()
         assert first == "hedge-first"
 
@@ -282,10 +271,67 @@ class TestServerStreamInterceptorBranches:
         async def continuation(_details: Any, _request: Any) -> _OneShotCall:
             return _OneShotCall()
 
-        stream = await interceptor.intercept_unary_stream(
-            continuation, _make_call_details(), object()
-        )
+        stream = await interceptor.intercept_unary_stream(continuation, _make_call_details(), object())
         collected = []
         async for msg in stream:
             collected.append(msg)
         assert collected == ["only-msg"]
+
+    async def test_prepended_stream_first_msg_eof_raises_stop(self) -> None:
+        """When the very first message is EOF, iteration stops immediately."""
+        from hedge.interceptor._grpc import _PrependedStream
+
+        mock_call = AsyncMock()
+        stream = _PrependedStream(first_msg=grpc.aio.EOF, call=mock_call)
+
+        collected = []
+        async for msg in stream:
+            collected.append(msg)
+        assert collected == []
+
+    async def test_unary_current_task_none_skips_call_holder(self) -> None:
+        """When asyncio.current_task() returns None, call_holder is empty
+        and the loser cancel branch gracefully skips."""
+        config = HedgeConfig(
+            warmup_requests=0,
+            warmup_delay=0.005,
+            min_delay=0.001,
+            budget_percent=100.0,
+            estimated_rps=1000.0,
+        )
+        interceptor = HedgedUnaryInterceptor(config=config)
+        invocation = {"count": 0}
+
+        async def continuation(_details: Any, _request: Any) -> _FakeUnaryCall:
+            invocation["count"] += 1
+            if invocation["count"] == 1:
+                return _FakeUnaryCall(response="primary", delay=0.5)
+            return _FakeUnaryCall(response="hedge", delay=0.01)
+
+        with patch("asyncio.current_task", return_value=None):
+            result = await interceptor.intercept_unary_unary(continuation, _make_call_details(), object())
+        assert result == "hedge"
+
+    async def test_stream_current_task_none_skips_call_holder(self) -> None:
+        """When asyncio.current_task() returns None in stream interceptor,
+        call_holder is empty and the loser cancel branch gracefully skips."""
+        config = HedgeConfig(
+            warmup_requests=0,
+            warmup_delay=0.005,
+            min_delay=0.001,
+            budget_percent=100.0,
+            estimated_rps=1000.0,
+        )
+        interceptor = HedgedServerStreamInterceptor(config=config)
+        invocation = {"count": 0}
+
+        async def continuation(_details: Any, _request: Any) -> _FakeStreamCall:
+            invocation["count"] += 1
+            if invocation["count"] == 1:
+                return _FakeStreamCall(first_msg="primary-first", delay=0.5)
+            return _FakeStreamCall(first_msg="hedge-first", delay=0.01)
+
+        with patch("asyncio.current_task", return_value=None):
+            stream = await interceptor.intercept_unary_stream(continuation, _make_call_details(), object())
+            first = await stream.__anext__()
+        assert first == "hedge-first"

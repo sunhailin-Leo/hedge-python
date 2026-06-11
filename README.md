@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/sunhailin-Leo/hedge-python/actions/workflows/ci.yml/badge.svg)](https://github.com/sunhailin-Leo/hedge-python/actions)
 [![Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen.svg)](#testing)
-[![Python](https://img.shields.io/badge/python-3.9%E2%80%933.13-blue.svg)](pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.9%E2%80%933.14-blue.svg)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Python port of [bhope/hedge](https://github.com/bhope/hedge) — **adaptive hedged
@@ -14,8 +14,8 @@ requests for tail-latency optimisation**.
 [DDSketch](https://arxiv.org/abs/2004.08604), races a backup request when the
 primary exceeds its estimated p90, and caps the hedge rate with a token bucket
 to prevent load amplification during outages. Zero configuration required.
-First-class support for **httpx**, **aiohttp**, and **gRPC** (unary +
-server-streaming).
+First-class support for **httpx**, **aiohttp**, **niquests**, **tornado**, and **gRPC** (unary +
+server-streaming). Works out of the box with **OpenAI's Python SDK**.
 
 Inspired by Dean & Barroso, [_The Tail at Scale_](https://research.google/pubs/the-tail-at-scale/) (CACM 2013).
 
@@ -51,6 +51,8 @@ Across all three frameworks, p99 latency drops by **60–66%** at the cost of
 # Install with your preferred framework
 pip install hedge-python[httpx]
 pip install hedge-python[aiohttp]
+pip install hedge-python[niquests]
+pip install hedge-python[tornado]
 pip install hedge-python[grpc]
 pip install hedge-python[all]   # all frameworks
 ```
@@ -115,6 +117,59 @@ async def make_channel():
         interceptors=[HedgedServerStreamInterceptor(config=HedgeConfig())],
     )
 ```
+
+### niquests
+
+```python
+import asyncio
+from hedge import HedgeConfig
+from hedge.transport import HedgedNiquestsSession
+
+async def main():
+    async with HedgedNiquestsSession(config=HedgeConfig()) as session:
+        resp = await session.get("https://api.example.com/data")
+        print(resp.status_code)
+
+asyncio.run(main())
+```
+
+### tornado
+
+```python
+import asyncio
+from hedge import HedgeConfig
+from hedge.transport import HedgedTornadoClient
+
+async def main():
+    async with HedgedTornadoClient(config=HedgeConfig()) as client:
+        resp = await client.fetch("https://api.example.com/data")
+        print(resp.code)
+
+asyncio.run(main())
+```
+
+### OpenAI SDK
+
+Since the OpenAI Python SDK uses httpx under the hood, you can inject
+`HedgedHttpxTransport` directly via the `http_client` parameter:
+
+```python
+import httpx
+from openai import AsyncOpenAI
+from hedge import HedgeConfig
+from hedge.transport import HedgedHttpxTransport
+
+transport = HedgedHttpxTransport(config=HedgeConfig(percentile=0.95))
+client = AsyncOpenAI(
+    api_key="sk-...",
+    http_client=httpx.AsyncClient(transport=transport),
+)
+```
+
+> **Note**: OpenAI's core APIs (Chat Completions, Embeddings, etc.) use POST,
+> so they are **not** hedged by default — avoiding double billing. Only GET
+> endpoints (e.g. model listing) are hedged. See
+> [`examples/openai_hedged.py`](examples/openai_hedged.py) for a full example.
 
 For server streaming, the hedge signal is **time-to-first-message (TTFM)**: if
 the primary stream doesn't yield its first chunk within the estimated p90,
@@ -255,7 +310,7 @@ make ci                 # lint + typecheck + test + coverage
 * **Benchmarks** (`tests/benchmark/`): DDSketch microbench, token bucket
   microbench, four-config comparison, three-framework comparison.
 
-Current coverage: **97%** (122 tests, ~7 seconds).
+Current coverage: **97%** (150 tests, ~7 seconds).
 
 ---
 
@@ -275,7 +330,9 @@ hedge-python/
 │   ├── transport/
 │   │   ├── _base.py         # Shared HedgeScheduler logic
 │   │   ├── _httpx.py        # httpx AsyncBaseTransport adapter
-│   │   └── _aiohttp.py      # aiohttp session wrapper
+│   │   ├── _aiohttp.py      # aiohttp session wrapper
+│   │   ├── _niquests.py     # niquests session wrapper
+│   │   └── _tornado.py      # tornado AsyncHTTPClient wrapper
 │   └── interceptor/
 │       └── _grpc.py         # gRPC unary + server-stream interceptors
 ├── tests/

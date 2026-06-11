@@ -105,8 +105,7 @@ class TestDDSketchQuantile:
             if true_value != 0:
                 relative_error = abs(estimate - true_value) / abs(true_value)
                 assert relative_error <= accuracy, (
-                    f"q={quantile}: estimate={estimate}, true={true_value}, "
-                    f"error={relative_error:.4f} > {accuracy}"
+                    f"q={quantile}: estimate={estimate}, true={true_value}, error={relative_error:.4f} > {accuracy}"
                 )
 
     def test_uniform_distribution_median(self) -> None:
@@ -205,3 +204,32 @@ class TestDDSketchReset:
         assert sketch.count == 1
         estimate = sketch.quantile(0.5)
         assert abs(estimate - 42.0) / 42.0 <= 0.01
+
+    def test_quantile_falls_through_to_max(self) -> None:
+        """Exercise the defensive ``return self._max`` fallback at the end of quantile().
+
+        This covers L166 — the path where rank exceeds all bin cumulative counts
+        and falls through to the final ``return self._max``.
+        """
+        sketch = DDSketch(0.01)
+        sketch.add(100.0)
+        # p100 should hit the _max fallback
+        result = sketch.quantile(1.0)
+        assert result == 100.0
+
+    def test_quantile_negative_then_zero_then_positive(self) -> None:
+        """Exercise the full quantile path: negative bins → zero → positive bins.
+
+        This covers branch 154→158 (falling through negative bins into zero/positive).
+        """
+        sketch = DDSketch(0.01)
+        # Add negative, zero, and positive values
+        for v in [-10.0, -5.0, 0.0, 5.0, 10.0]:
+            sketch.add(v)
+        # Low quantile should be negative
+        assert sketch.quantile(0.1) < 0
+        # Mid quantile around zero
+        mid = sketch.quantile(0.5)
+        assert abs(mid) <= 1.0
+        # High quantile should be positive
+        assert sketch.quantile(0.9) > 0

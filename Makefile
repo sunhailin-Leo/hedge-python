@@ -18,15 +18,15 @@ typecheck:
 	uv run mypy src/hedge/
 
 # Run all tests
-test:
+test: install
 	uv run pytest tests/ -v --tb=short
 
 # Unit tests only
-test-unit:
+test-unit: install
 	uv run pytest tests/unit/ -v --tb=short
 
 # Integration tests only
-test-integration:
+test-integration: install
 	uv run pytest tests/integration/ -v --tb=short -m integration
 
 # Benchmark tests
@@ -46,7 +46,7 @@ bench-plot:
 	uv run python benchmark/plot.py
 
 # Coverage report
-coverage:
+coverage: install
 	uv run pytest tests/ --cov=src/hedge --cov-report=term-missing --cov-report=html
 
 # Run full CI checks locally

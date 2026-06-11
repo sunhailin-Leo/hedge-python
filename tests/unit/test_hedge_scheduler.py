@@ -22,9 +22,9 @@ class TestHedgeScheduler:
     async def test_counter_increments(self) -> None:
         """Counter should increment per host independently."""
         scheduler = HedgeScheduler(HedgeConfig())
-        assert await scheduler.increment_counter("host-a") == 1
-        assert await scheduler.increment_counter("host-a") == 2
-        assert await scheduler.increment_counter("host-b") == 1
+        assert scheduler.increment_counter("host-a") == 1
+        assert scheduler.increment_counter("host-a") == 2
+        assert scheduler.increment_counter("host-b") == 1
         await scheduler.close()
 
     async def test_warmup_delay(self) -> None:
