@@ -2,8 +2,8 @@
 
 Injects :class:`HedgedHttpxTransport` into ``openai.AsyncOpenAI`` via its
 ``http_client`` parameter. Because the OpenAI Python SDK uses httpx under the
-hood, this gives every API call automatic tail-latency hedging — with no
-changes to business logic.
+hood, this gives idempotent API calls (GET/HEAD/OPTIONS) automatic
+tail-latency hedging — with no changes to business logic.
 
 **Important — hedging and OpenAI billing**:
 

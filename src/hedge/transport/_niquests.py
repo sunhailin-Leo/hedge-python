@@ -13,7 +13,6 @@ Usage::
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -26,7 +25,7 @@ except ImportError as exc:
     ) from exc
 
 from hedge._options import HedgeConfig
-from hedge.transport._base import HedgeScheduler
+from hedge.transport._base import HedgeScheduler, extract_host
 
 if TYPE_CHECKING:
     from hedge._stats import Stats
@@ -71,8 +70,7 @@ class HedgedNiquestsSession:
         **kwargs: Any,
     ) -> niquests.Response:
         """Perform a hedged request."""
-        parsed = urlparse(url)
-        host = parsed.netloc or parsed.hostname or url
+        host = extract_host(url)
         sketch = self._scheduler.sketch_for(host)
 
         can_hedge = method.upper() in ("GET", "HEAD", "OPTIONS")

@@ -14,7 +14,6 @@ Usage::
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -27,7 +26,7 @@ except ImportError as exc:
     ) from exc
 
 from hedge._options import HedgeConfig
-from hedge.transport._base import HedgeScheduler
+from hedge.transport._base import HedgeScheduler, extract_host
 
 if TYPE_CHECKING:
     from hedge._stats import Stats
@@ -84,8 +83,7 @@ class HedgedTornadoClient:
         """
         request_obj = HTTPRequest(request, **kwargs) if isinstance(request, str) else request
 
-        parsed = urlparse(request_obj.url)
-        host = parsed.netloc or parsed.hostname or request_obj.url
+        host = extract_host(request_obj.url)
         sketch = self._scheduler.sketch_for(host)
 
         method = (request_obj.method or "GET").upper()

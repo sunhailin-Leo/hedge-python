@@ -8,6 +8,7 @@ import math
 import time
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
+from urllib.parse import urlparse
 
 from hedge._stats import Stats
 from hedge.budget import TokenBucket
@@ -19,6 +20,20 @@ if TYPE_CHECKING:
     from hedge._options import HedgeConfig
 
 T = TypeVar("T")
+
+
+def extract_host(url: str) -> str:
+    """Extract a sanitized host key from a URL.
+
+    Returns ``hostname:port`` (when port is present) or just ``hostname``,
+    stripping any userinfo (``user:pass@``) to avoid retaining credentials
+    in per-host sketch keys.
+    """
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    if parsed.port:
+        return f"{hostname}:{parsed.port}"
+    return hostname or url
 
 
 class HedgeScheduler:
