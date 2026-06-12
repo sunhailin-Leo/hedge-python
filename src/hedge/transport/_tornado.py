@@ -87,7 +87,7 @@ class HedgedTornadoClient:
             request_obj = HTTPRequest(request, **fetch_kwargs)
         else:
             request_obj = request
-            per_request_raise_error = self._raise_error
+            per_request_raise_error = kwargs.pop("raise_error", self._raise_error) if kwargs else self._raise_error
 
         host = extract_host(request_obj.url)
         sketch = self._scheduler.sketch_for(host)
