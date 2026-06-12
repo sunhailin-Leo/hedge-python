@@ -96,7 +96,7 @@ async def main() -> None:
     )
     print(f"  hedge_rate={stats.hedge_rate():.2%}")
 
-    await hedged_transport.aclose()
+    # Close only the client — it will close the transport automatically.
     await http_client.aclose()
 
 
