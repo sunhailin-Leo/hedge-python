@@ -36,6 +36,9 @@ class TestExtractHost:
     def test_fallback_to_raw_url(self) -> None:
         assert extract_host("not-a-url") == "not-a-url"
 
+    def test_invalid_port_falls_back_to_hostname(self) -> None:
+        assert extract_host("http://example.com:bad/path") == "example.com"
+
 
 @pytest.mark.asyncio
 class TestHedgeScheduler:

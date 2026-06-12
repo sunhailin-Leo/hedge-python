@@ -32,10 +32,14 @@ def extract_host(url: str) -> str:
     """
     parsed = urlparse(url)
     hostname = parsed.hostname or ""
-    if parsed.port:
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    if port:
         if ":" in hostname:
-            return f"[{hostname}]:{parsed.port}"
-        return f"{hostname}:{parsed.port}"
+            return f"[{hostname}]:{port}"
+        return f"{hostname}:{port}"
     return hostname or url
 
 

@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in `hedge.transport.__init__` for easier extensibility.
 - `pyproject.toml` optional extras: `[niquests]`, `[tornado]` (also added
   to `[all]` and `[dev]`).
-- Comprehensive unit tests for niquests and tornado adapters (24 new tests).
+- Comprehensive unit tests for niquests and tornado adapters.
 - Import-error tests for `niquests`, `tornado`, and `grpc` modules.
 - Additional coverage tests: `TokenBucket.set_rps` truncation, `WindowedSketch`
   double-start idempotency, `DDSketch` quantile edge cases, gRPC interceptor
