@@ -36,7 +36,7 @@ def extract_host(url: str) -> str:
         port = parsed.port
     except ValueError:
         port = None
-    if port:
+    if port is not None:
         if ":" in hostname:
             return f"[{hostname}]:{port}"
         return f"{hostname}:{port}"

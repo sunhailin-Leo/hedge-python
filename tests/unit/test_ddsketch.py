@@ -206,10 +206,12 @@ class TestDDSketchReset:
         assert abs(estimate - 42.0) / 42.0 <= 0.01
 
     def test_quantile_falls_through_to_max(self) -> None:
-        """Exercise the defensive ``return self._max`` fallback at the end of quantile().
+        """Exercise the ``q >= 1.0`` early-return path in quantile().
 
-        This covers L166 — the path where rank exceeds all bin cumulative counts
-        and falls through to the final ``return self._max``.
+        When querying p100, the method returns ``self._max`` via the
+        ``quantile >= 1.0`` guard at the top, not the defensive fallback
+        at the very end of the function (which is unreachable under normal
+        inputs).
         """
         sketch = DDSketch(0.01)
         sketch.add(100.0)
