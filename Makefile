@@ -17,9 +17,9 @@ format:
 typecheck:
 	uv run mypy src/hedge/
 
-# Run all tests
+# Run all tests (unit + integration, excludes benchmarks)
 test: install
-	uv run pytest tests/ -v --tb=short
+	uv run pytest tests/ -v --tb=short --ignore=tests/benchmark
 
 # Unit tests only
 test-unit: install
