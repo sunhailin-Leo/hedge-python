@@ -119,6 +119,7 @@ class HedgedNiquestsSession:
         await self._scheduler.close()
         if self._session is not None:
             await self._session.close()
+            self._session = None
 
     async def __aenter__(self) -> HedgedNiquestsSession:
         return self

@@ -150,6 +150,6 @@ class TestHedgedNiquestsSessionLifecycle:
         assert session._session is real
         # Second call returns the same instance
         assert session._get_session() is real
-        # Close should shut down the real session
+        # Close should shut down the real session and clear the reference
         await session.close()
-        assert session._session is not None  # reference kept, but session closed
+        assert session._session is None
