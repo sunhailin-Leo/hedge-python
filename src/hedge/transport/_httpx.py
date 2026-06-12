@@ -19,12 +19,11 @@ try:
     import httpx
 except ImportError as exc:
     raise ImportError(
-        "httpx is required for HedgedHttpxTransport. "
-        "Install it with: pip install hedge-python[httpx]"
+        "httpx is required for HedgedHttpxTransport. Install it with: pip install hedge-python[httpx]"
     ) from exc
 
 from hedge._options import HedgeConfig
-from hedge.transport._base import HedgeScheduler
+from hedge.transport._base import HedgeScheduler, extract_host
 
 if TYPE_CHECKING:
     from hedge._stats import Stats
@@ -59,7 +58,7 @@ class HedgedHttpxTransport(httpx.AsyncBaseTransport):
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         """Handle an outgoing request with adaptive hedging."""
-        host = str(request.url.host)
+        host = extract_host(str(request.url))
         sketch = self._scheduler.sketch_for(host)
 
         can_hedge = request.method.upper() in ("GET", "HEAD", "OPTIONS")

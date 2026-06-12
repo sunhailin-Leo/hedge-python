@@ -95,3 +95,21 @@ class TestWindowedSketchBackgroundRotation:
     def test_stop_without_start(self) -> None:
         sketch = WindowedSketch()
         sketch.stop()  # Should not raise
+
+    def test_sync_start_twice_is_idempotent(self) -> None:
+        sketch = WindowedSketch(0.01, window_duration=0.05)
+        sketch.start()
+        first_thread = sketch._thread
+        sketch.start()  # second call should be a no-op
+        assert sketch._thread is first_thread
+        sketch.stop()
+
+    @pytest.mark.asyncio
+    async def test_async_start_twice_is_idempotent(self) -> None:
+
+        sketch = WindowedSketch(0.01, window_duration=0.05)
+        sketch.start_async()
+        first_task = sketch._async_task
+        sketch.start_async()  # second call should be a no-op
+        assert sketch._async_task is first_task
+        sketch.stop()

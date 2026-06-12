@@ -26,6 +26,16 @@ class TestTransportLazyImports:
         cls = module.HedgedAiohttpSession
         assert cls.__name__ == "HedgedAiohttpSession"
 
+    def test_lazy_loads_niquests_session(self) -> None:
+        module = importlib.import_module("hedge.transport")
+        cls = module.HedgedNiquestsSession
+        assert cls.__name__ == "HedgedNiquestsSession"
+
+    def test_lazy_loads_tornado_client(self) -> None:
+        module = importlib.import_module("hedge.transport")
+        cls = module.HedgedTornadoClient
+        assert cls.__name__ == "HedgedTornadoClient"
+
     def test_unknown_attribute_raises(self) -> None:
         module = importlib.import_module("hedge.transport")
         with pytest.raises(AttributeError, match="DoesNotExist"):

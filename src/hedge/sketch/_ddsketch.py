@@ -36,15 +36,25 @@ class _LogMapping:
 
 
 class _Store:
-    """Sparse map of bucket indices to cumulative counts."""
+    """Sparse map of bucket indices to cumulative counts with lazy sorted key cache."""
 
-    __slots__ = ("bins", "count")
+    __slots__ = ("bins", "count", "_sorted_keys_cache")
 
     def __init__(self) -> None:
         self.bins: dict[int, float] = defaultdict(float)
         self.count: float = 0.0
+        self._sorted_keys_cache: list[int] | None = None
+
+    @property
+    def sorted_keys(self) -> list[int]:
+        """Return sorted bin keys, building from cache when possible."""
+        if self._sorted_keys_cache is None:
+            self._sorted_keys_cache = sorted(self.bins.keys())
+        return self._sorted_keys_cache
 
     def add(self, index: int) -> None:
+        if index not in self.bins:
+            self._sorted_keys_cache = None
         self.bins[index] += 1.0
         self.count += 1.0
 
@@ -52,10 +62,12 @@ class _Store:
         for idx, cnt in other.bins.items():
             self.bins[idx] += cnt
         self.count += other.count
+        self._sorted_keys_cache = None
 
     def reset(self) -> None:
         self.bins = defaultdict(float)
         self.count = 0.0
+        self._sorted_keys_cache = None
 
 
 class DDSketch:
@@ -129,8 +141,9 @@ class DDSketch:
         # Negative values: iterate descending (most negative -> least negative)
         if self._negative.count > 0:
             cumulative = 0.0
-            for idx in sorted(self._negative.bins.keys(), reverse=True):
-                cumulative += self._negative.bins[idx]
+            neg_bins = self._negative.bins
+            for idx in reversed(self._negative.sorted_keys):
+                cumulative += neg_bins[idx]
                 if cumulative >= rank:
                     return -self._mapping.value(idx)
             rank -= self._negative.count
@@ -144,8 +157,9 @@ class DDSketch:
         # Positive values: iterate ascending (least positive -> most positive)
         if self._positive.count > 0:
             cumulative = 0.0
-            for idx in sorted(self._positive.bins.keys()):
-                cumulative += self._positive.bins[idx]
+            pos_bins = self._positive.bins
+            for idx in self._positive.sorted_keys:
+                cumulative += pos_bins[idx]
                 if cumulative >= rank:
                     return self._mapping.value(idx)
 

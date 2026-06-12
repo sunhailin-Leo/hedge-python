@@ -28,8 +28,7 @@ try:
     import grpc.aio  # type: ignore[import-untyped]
 except ImportError as exc:
     raise ImportError(
-        "grpcio is required for gRPC interceptors. "
-        "Install it with: pip install hedge-python[grpc]"
+        "grpcio is required for gRPC interceptors. Install it with: pip install hedge-python[grpc]"
     ) from exc
 
 from hedge._options import HedgeConfig

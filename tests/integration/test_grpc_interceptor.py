@@ -93,13 +93,9 @@ class TestHedgedUnaryInterceptor:
             )
             interceptor = HedgedUnaryInterceptor(config=config)
 
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}", interceptors=[interceptor]
-            ) as channel:
+            async with grpc.aio.insecure_channel(f"localhost:{port}", interceptors=[interceptor]) as channel:
                 stub = testservice_pb2_grpc.TestServiceStub(channel)
-                response = await stub.Echo(
-                    testservice_pb2.EchoRequest(message="hello", delay_ms=0)
-                )
+                response = await stub.Echo(testservice_pb2.EchoRequest(message="hello", delay_ms=0))
                 assert response.message == "hello"
                 assert response.request_number == 1
                 assert servicer.echo_call_count == 1
@@ -114,14 +110,10 @@ class TestHedgedUnaryInterceptor:
             config = HedgeConfig(min_delay=0.001, warmup_requests=0)
             interceptor = HedgedUnaryInterceptor(config=config)
 
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}", interceptors=[interceptor]
-            ) as channel:
+            async with grpc.aio.insecure_channel(f"localhost:{port}", interceptors=[interceptor]) as channel:
                 stub = testservice_pb2_grpc.TestServiceStub(channel)
                 for i in range(5):
-                    response = await stub.Echo(
-                        testservice_pb2.EchoRequest(message=f"msg-{i}", delay_ms=0)
-                    )
+                    response = await stub.Echo(testservice_pb2.EchoRequest(message=f"msg-{i}", delay_ms=0))
                     assert response.message == f"msg-{i}"
 
             snap = interceptor.stats.snapshot()
@@ -151,21 +143,15 @@ class TestHedgedUnaryInterceptor:
             )
             interceptor = HedgedUnaryInterceptor(config=config)
 
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}", interceptors=[interceptor]
-            ) as channel:
+            async with grpc.aio.insecure_channel(f"localhost:{port}", interceptors=[interceptor]) as channel:
                 stub = testservice_pb2_grpc.TestServiceStub(channel)
                 # Warmup: fast responses to build sketch
                 for _ in range(25):
-                    response = await stub.Echo(
-                        testservice_pb2.EchoRequest(message="warmup", delay_ms=1)
-                    )
+                    response = await stub.Echo(testservice_pb2.EchoRequest(message="warmup", delay_ms=1))
                     assert response.message == "warmup"
                 # Post-warmup requests
                 for _ in range(5):
-                    response = await stub.Echo(
-                        testservice_pb2.EchoRequest(message="post", delay_ms=5)
-                    )
+                    response = await stub.Echo(testservice_pb2.EchoRequest(message="post", delay_ms=5))
                     assert response.message == "post"
 
             snap = interceptor.stats.snapshot()
@@ -198,24 +184,18 @@ class TestHedgedUnaryInterceptor:
             )
             interceptor = HedgedUnaryInterceptor(config=config)
 
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}", interceptors=[interceptor]
-            ) as channel:
+            async with grpc.aio.insecure_channel(f"localhost:{port}", interceptors=[interceptor]) as channel:
                 stub = testservice_pb2_grpc.TestServiceStub(channel)
 
                 # Warmup + sketch training: 30 fast requests around 2ms each.
                 for _ in range(30):
-                    await stub.Echo(
-                        testservice_pb2.EchoRequest(message="train", delay_ms=2)
-                    )
+                    await stub.Echo(testservice_pb2.EchoRequest(message="train", delay_ms=2))
 
                 # Trigger phase: 15 slow requests at ~80ms each. Estimated p90
                 # is around 2-5ms, so the hedge_delay timer will expire long
                 # before the primary completes.
                 for _ in range(15):
-                    response = await stub.Echo(
-                        testservice_pb2.EchoRequest(message="slow", delay_ms=80)
-                    )
+                    response = await stub.Echo(testservice_pb2.EchoRequest(message="slow", delay_ms=80))
                     assert response.message == "slow"
 
             snap = interceptor.stats.snapshot()
@@ -225,14 +205,11 @@ class TestHedgedUnaryInterceptor:
             assert snap.total_requests == 45
             assert snap.warmup_requests == 10
             # Slow phase MUST trigger hedges — at least one out of 15.
-            assert snap.hedged_requests > 0, (
-                f"expected hedge to fire at least once, got snapshot={snap}"
-            )
+            assert snap.hedged_requests > 0, f"expected hedge to fire at least once, got snapshot={snap}"
             # Server should have processed strictly more than 45 calls because
             # of hedge duplicates (each hedge fires a second RPC).
             assert servicer.echo_call_count > 45, (
-                f"expected duplicate RPCs from hedging, got "
-                f"echo_call_count={servicer.echo_call_count}"
+                f"expected duplicate RPCs from hedging, got echo_call_count={servicer.echo_call_count}"
             )
         finally:
             await server.stop(grace=1)
@@ -251,15 +228,11 @@ class TestHedgedUnaryInterceptor:
             )
             interceptor = HedgedUnaryInterceptor(config=config)
 
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}", interceptors=[interceptor]
-            ) as channel:
+            async with grpc.aio.insecure_channel(f"localhost:{port}", interceptors=[interceptor]) as channel:
                 stub = testservice_pb2_grpc.TestServiceStub(channel)
 
                 async def fire_one(index: int) -> testservice_pb2.EchoResponse:
-                    return await stub.Echo(
-                        testservice_pb2.EchoRequest(message=f"concurrent-{index}", delay_ms=5)
-                    )
+                    return await stub.Echo(testservice_pb2.EchoRequest(message=f"concurrent-{index}", delay_ms=5))
 
                 responses = await asyncio.gather(*[fire_one(i) for i in range(10)])
 
@@ -284,14 +257,10 @@ class TestHedgedUnaryInterceptor:
             )
             interceptor = HedgedUnaryInterceptor(config=config)
 
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}", interceptors=[interceptor]
-            ) as channel:
+            async with grpc.aio.insecure_channel(f"localhost:{port}", interceptors=[interceptor]) as channel:
                 stub = testservice_pb2_grpc.TestServiceStub(channel)
                 for _ in range(5):
-                    await stub.Echo(
-                        testservice_pb2.EchoRequest(message="warmup", delay_ms=0)
-                    )
+                    await stub.Echo(testservice_pb2.EchoRequest(message="warmup", delay_ms=0))
 
             snap = interceptor.stats.snapshot()
             assert snap.warmup_requests == 5
@@ -318,9 +287,7 @@ class TestHedgedServerStreamInterceptor:
             config = HedgeConfig(min_delay=0.001, warmup_requests=0)
             interceptor = HedgedServerStreamInterceptor(config=config)
 
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}", interceptors=[interceptor]
-            ) as channel:
+            async with grpc.aio.insecure_channel(f"localhost:{port}", interceptors=[interceptor]) as channel:
                 stub = testservice_pb2_grpc.TestServiceStub(channel)
                 stream = stub.StreamEcho(
                     testservice_pb2.StreamEchoRequest(
@@ -349,9 +316,7 @@ class TestHedgedServerStreamInterceptor:
             config = HedgeConfig(min_delay=0.001, warmup_requests=0)
             interceptor = HedgedServerStreamInterceptor(config=config)
 
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}", interceptors=[interceptor]
-            ) as channel:
+            async with grpc.aio.insecure_channel(f"localhost:{port}", interceptors=[interceptor]) as channel:
                 stub = testservice_pb2_grpc.TestServiceStub(channel)
                 for _ in range(3):
                     stream = stub.StreamEcho(
@@ -385,9 +350,7 @@ class TestHedgedServerStreamInterceptor:
             )
             interceptor = HedgedServerStreamInterceptor(config=config)
 
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}", interceptors=[interceptor]
-            ) as channel:
+            async with grpc.aio.insecure_channel(f"localhost:{port}", interceptors=[interceptor]) as channel:
                 stub = testservice_pb2_grpc.TestServiceStub(channel)
                 # Warmup: fast first chunks
                 for _ in range(25):
@@ -429,9 +392,7 @@ class TestHedgedServerStreamInterceptor:
             config = HedgeConfig(min_delay=0.001, warmup_requests=0)
             interceptor = HedgedServerStreamInterceptor(config=config)
 
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}", interceptors=[interceptor]
-            ) as channel:
+            async with grpc.aio.insecure_channel(f"localhost:{port}", interceptors=[interceptor]) as channel:
                 stub = testservice_pb2_grpc.TestServiceStub(channel)
                 stream = stub.StreamEcho(
                     testservice_pb2.StreamEchoRequest(
@@ -462,9 +423,7 @@ class TestHedgedServerStreamInterceptor:
             )
             interceptor = HedgedServerStreamInterceptor(config=config)
 
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}", interceptors=[interceptor]
-            ) as channel:
+            async with grpc.aio.insecure_channel(f"localhost:{port}", interceptors=[interceptor]) as channel:
                 stub = testservice_pb2_grpc.TestServiceStub(channel)
                 for _ in range(5):
                     stream = stub.StreamEcho(

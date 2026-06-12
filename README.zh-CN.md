@@ -4,14 +4,14 @@
 
 [![CI](https://github.com/sunhailin-Leo/hedge-python/actions/workflows/ci.yml/badge.svg)](https://github.com/sunhailin-Leo/hedge-python/actions)
 [![Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen.svg)](#测试)
-[![Python](https://img.shields.io/badge/python-3.9%E2%80%933.13-blue.svg)](pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.9%E2%80%933.14-blue.svg)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > 📘 完整文档以 **[英文版](README.md)** 为主，本文为中文摘要，便于快速了解。
 
 [bhope/hedge](https://github.com/bhope/hedge) 的 Python 移植版本 —— **面向尾延迟优化的自适应对冲请求库**。
 
-`hedge-python` 使用 [DDSketch](https://arxiv.org/abs/2004.08604) 学习每个目标主机的延迟分布，当主请求超过估算的 p90 时立即发起备份请求，并通过令牌桶限制对冲速率，避免在故障期间放大流量。**零配置开箱即用**，原生支持 **httpx**、**aiohttp** 和 **gRPC**（unary + server-streaming）。
+`hedge-python` 使用 [DDSketch](https://arxiv.org/abs/2004.08604) 学习每个目标主机的延迟分布，当主请求超过估算的 p90 时立即发起备份请求，并通过令牌桶限制对冲速率，避免在故障期间放大流量。**零配置开箱即用**，原生支持 **httpx**、**aiohttp**、**niquests**、**tornado** 和 **gRPC**（unary + server-streaming）。同时支持通过 `http_client` 参数无缝集成 **OpenAI Python SDK**。
 
 灵感来自 Dean & Barroso 的 [_The Tail at Scale_](https://research.google/pubs/the-tail-at-scale/)（CACM 2013）。
 
@@ -44,6 +44,8 @@
 # 按需安装框架支持
 pip install hedge-python[httpx]
 pip install hedge-python[aiohttp]
+pip install hedge-python[niquests]
+pip install hedge-python[tornado]
 pip install hedge-python[grpc]
 pip install hedge-python[all]   # 全部框架
 ```
@@ -108,6 +110,55 @@ async def make_channel():
         interceptors=[HedgedServerStreamInterceptor(config=HedgeConfig())],
     )
 ```
+
+### niquests
+
+```python
+import asyncio
+from hedge import HedgeConfig
+from hedge.transport import HedgedNiquestsSession
+
+async def main():
+    async with HedgedNiquestsSession(config=HedgeConfig()) as session:
+        resp = await session.get("https://api.example.com/data")
+        print(resp.status_code)
+
+asyncio.run(main())
+```
+
+### tornado
+
+```python
+import asyncio
+from hedge import HedgeConfig
+from hedge.transport import HedgedTornadoClient
+
+async def main():
+    async with HedgedTornadoClient(config=HedgeConfig()) as client:
+        resp = await client.fetch("https://api.example.com/data")
+        print(resp.code)
+
+asyncio.run(main())
+```
+
+### OpenAI SDK
+
+OpenAI Python SDK 底层使用 httpx，可通过 `http_client` 参数直接注入 `HedgedHttpxTransport`：
+
+```python
+import httpx
+from openai import AsyncOpenAI
+from hedge import HedgeConfig
+from hedge.transport import HedgedHttpxTransport
+
+transport = HedgedHttpxTransport(config=HedgeConfig(percentile=0.95))
+client = AsyncOpenAI(
+    api_key="sk-...",
+    http_client=httpx.AsyncClient(transport=transport),
+)
+```
+
+> **注意**：OpenAI 核心 API（Chat Completions、Embeddings 等）使用 POST，默认**不会**被对冲——避免双倍计费。仅 GET 端点（如模型列表）会被对冲。完整示例见 [`examples/openai_hedged.py`](examples/openai_hedged.py)。
 
 对于 server-streaming，对冲信号是 **首消息到达时间（TTFM）**：若主流在估算的 p90 内仍未返回首个 chunk，则发起备份流。先返回首 chunk 的流胜出并继续接管，败者在传输层被取消。
 
@@ -220,7 +271,7 @@ make ci                 # lint + typecheck + test + coverage
 * **集成测试** (`tests/integration/`)：真实 httpx transport、真实 aiohttp session、**真实本地 gRPC server**（含 `.proto` 与生成的 pb2）。
 * **基准测试** (`tests/benchmark/`)：DDSketch 微基准、令牌桶微基准、四配置对比、三框架对比。
 
-当前覆盖率：**97%**（122 个测试，约 7 秒）。
+当前覆盖率：**97%**（150 个测试，约 7 秒）。
 
 ---
 

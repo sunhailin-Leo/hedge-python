@@ -5,7 +5,39 @@ import asyncio
 import pytest
 
 from hedge._options import HedgeConfig
-from hedge.transport._base import HedgeScheduler
+from hedge.transport._base import HedgeScheduler, extract_host
+
+
+class TestExtractHost:
+    def test_simple_url(self) -> None:
+        assert extract_host("https://example.com/path") == "example.com"
+
+    def test_url_with_port(self) -> None:
+        assert extract_host("https://example.com:8080/path") == "example.com:8080"
+
+    def test_strips_userinfo(self) -> None:
+        assert extract_host("https://user:pass@example.com/path") == "example.com"
+
+    def test_strips_userinfo_with_port(self) -> None:
+        assert extract_host("https://user:pass@example.com:443/path") == "example.com:443"
+
+    def test_ipv4(self) -> None:
+        assert extract_host("http://192.168.1.1:3000/api") == "192.168.1.1:3000"
+
+    def test_ipv6_no_port(self) -> None:
+        assert extract_host("http://[::1]/path") == "::1"
+
+    def test_ipv6_with_port(self) -> None:
+        assert extract_host("http://[::1]:8080/path") == "[::1]:8080"
+
+    def test_ipv6_full_with_port(self) -> None:
+        assert extract_host("http://[2001:db8::1]:9090/api") == "[2001:db8::1]:9090"
+
+    def test_fallback_to_raw_url(self) -> None:
+        assert extract_host("not-a-url") == "not-a-url"
+
+    def test_invalid_port_falls_back_to_hostname(self) -> None:
+        assert extract_host("http://example.com:bad/path") == "example.com"
 
 
 @pytest.mark.asyncio
@@ -22,9 +54,9 @@ class TestHedgeScheduler:
     async def test_counter_increments(self) -> None:
         """Counter should increment per host independently."""
         scheduler = HedgeScheduler(HedgeConfig())
-        assert await scheduler.increment_counter("host-a") == 1
-        assert await scheduler.increment_counter("host-a") == 2
-        assert await scheduler.increment_counter("host-b") == 1
+        assert scheduler.increment_counter("host-a") == 1
+        assert scheduler.increment_counter("host-a") == 2
+        assert scheduler.increment_counter("host-b") == 1
         await scheduler.close()
 
     async def test_warmup_delay(self) -> None:

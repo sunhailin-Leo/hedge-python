@@ -8,6 +8,7 @@ import math
 import time
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
+from urllib.parse import urlparse
 
 from hedge._stats import Stats
 from hedge.budget import TokenBucket
@@ -19,6 +20,27 @@ if TYPE_CHECKING:
     from hedge._options import HedgeConfig
 
 T = TypeVar("T")
+
+
+def extract_host(url: str) -> str:
+    """Extract a sanitized host key from a URL.
+
+    Returns ``hostname:port`` (when port is present) or just ``hostname``,
+    stripping any userinfo (``user:pass@``) to avoid retaining credentials
+    in per-host sketch keys. IPv6 addresses are bracket-wrapped when a port
+    is present to keep the key unambiguous (e.g. ``[::1]:8080``).
+    """
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    if port is not None:
+        if ":" in hostname:
+            return f"[{hostname}]:{port}"
+        return f"{hostname}:{port}"
+    return hostname or url
 
 
 class HedgeScheduler:
@@ -37,7 +59,6 @@ class HedgeScheduler:
         self.budget = TokenBucket(config.budget_percent, config.estimated_rps)
         self._sketches: dict[str, WindowedSketch] = {}
         self._counters: dict[str, int] = defaultdict(int)
-        self._lock = asyncio.Lock()
 
     def sketch_for(self, host: str) -> WindowedSketch:
         """Get or create a WindowedSketch for the given host."""
@@ -50,11 +71,14 @@ class HedgeScheduler:
             self._sketches[host] = sketch
         return self._sketches[host]
 
-    async def increment_counter(self, host: str) -> int:
-        """Atomically increment and return the request counter for a host."""
-        async with self._lock:
-            self._counters[host] += 1
-            return self._counters[host]
+    def increment_counter(self, host: str) -> int:
+        """Increment and return the request counter for a host.
+
+        Safe without a lock because asyncio is single-threaded and this
+        method contains no ``await`` suspension points.
+        """
+        self._counters[host] += 1
+        return self._counters[host]
 
     def compute_hedge_delay(self, host: str, request_number: int) -> float:
         """Compute the hedge delay in seconds for a given host and request number."""
@@ -90,7 +114,7 @@ class HedgeScheduler:
         """
         self.stats.increment_total()
 
-        request_number = await self.increment_counter(host)
+        request_number = self.increment_counter(host)
         hedge_delay = self.compute_hedge_delay(host, request_number)
         start = time.monotonic()
 

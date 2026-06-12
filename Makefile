@@ -17,16 +17,16 @@ format:
 typecheck:
 	uv run mypy src/hedge/
 
-# Run all tests
-test:
-	uv run pytest tests/ -v --tb=short
+# Run all tests (unit + integration, excludes benchmarks)
+test: install
+	uv run pytest tests/ -v --tb=short --ignore=tests/benchmark
 
 # Unit tests only
-test-unit:
+test-unit: install
 	uv run pytest tests/unit/ -v --tb=short
 
 # Integration tests only
-test-integration:
+test-integration: install
 	uv run pytest tests/integration/ -v --tb=short -m integration
 
 # Benchmark tests
@@ -45,9 +45,9 @@ bench-multi:
 bench-plot:
 	uv run python benchmark/plot.py
 
-# Coverage report
-coverage:
-	uv run pytest tests/ --cov=src/hedge --cov-report=term-missing --cov-report=html
+# Coverage report (excludes benchmarks for speed)
+coverage: install
+	uv run pytest tests/ --cov=src/hedge --cov-report=term-missing --cov-report=html --ignore=tests/benchmark
 
 # Run full CI checks locally
 ci: lint typecheck test coverage

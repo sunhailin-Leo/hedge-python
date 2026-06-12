@@ -1,7 +1,7 @@
 """Comparison benchmarks: no-hedge vs hedged across configurations.
 
-Simulates a backend with lognormal base latency and 5% straggler probability,
-then compares four configurations — matching the Go reference (bhope/hedge):
+Starts a real local HTTP server with lognormal base latency and 5% straggler
+probability, then compares four configurations over real network connections:
 
   1. No hedging
   2. Static 10ms threshold
@@ -25,6 +25,7 @@ import random
 import time
 from dataclasses import dataclass
 
+import aiohttp.web
 import httpx
 import pytest
 
@@ -53,29 +54,44 @@ RESULTS_CSV = os.path.join(RESULTS_DIR, "results.csv")
 
 
 # ---------------------------------------------------------------------------
-# Simulated backend
+# Real HTTP server with simulated latency
 # ---------------------------------------------------------------------------
-class SimulatedBackendTransport(httpx.AsyncBaseTransport):
-    """Simulates a backend with lognormal latency and straggler spikes.
-
-    Uses the same distribution as the Go reference: lognormal base latency
-    with ``STRAGGLER_PROB`` chance of a ``STRAGGLER_MULTIPLIER``x spike.
-    """
+class _BenchServer:
+    """Local HTTP server emulating lognormal + straggler latency."""
 
     def __init__(self) -> None:
-        self._call_count = 0
+        self.call_count = 0
+        self._runner: aiohttp.web.AppRunner | None = None
+        self._site: aiohttp.web.TCPSite | None = None
+        self.port: int = 0
 
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        self._call_count += 1
+    async def _handle(self, _request: aiohttp.web.Request) -> aiohttp.web.Response:
+        self.call_count += 1
         latency_ms = math.exp(_MU_LN + _SIGMA_LN * random.gauss(0, 1))
         if random.random() < STRAGGLER_PROB:
             latency_ms *= STRAGGLER_MULTIPLIER
         await asyncio.sleep(latency_ms / 1000.0)
-        return httpx.Response(200, text="ok")
+        return aiohttp.web.Response(text="ok")
 
-    @property
-    def call_count(self) -> int:
-        return self._call_count
+    async def start(self) -> None:
+        app = aiohttp.web.Application()
+        app.router.add_get("/api", self._handle)
+        self._runner = aiohttp.web.AppRunner(app)
+        await self._runner.setup()
+        self._site = aiohttp.web.TCPSite(self._runner, "127.0.0.1", 0)
+        await self._site.start()
+        server = self._site._server  # type: ignore[attr-defined]
+        sockets = server.sockets if server else None
+        assert sockets, "server failed to bind socket"
+        self.port = sockets[0].getsockname()[1]
+
+    async def stop(self) -> None:
+        if self._runner is not None:
+            await self._runner.cleanup()
+
+    def reset(self) -> None:
+        """Reset call count between configurations."""
+        self.call_count = 0
 
 
 # ---------------------------------------------------------------------------
@@ -104,8 +120,7 @@ class BenchmarkResult:
     def percentiles(self) -> dict[str, float]:
         sorted_lat = sorted(self.latencies)
         return {
-            label: _percentile(sorted_lat, quantile)
-            for label, quantile in zip(PERCENTILE_LABELS, PERCENTILE_VALUES)
+            label: _percentile(sorted_lat, quantile) for label, quantile in zip(PERCENTILE_LABELS, PERCENTILE_VALUES)
         }
 
 
@@ -149,11 +164,13 @@ def _write_csv(results: list[BenchmarkResult]) -> str:
         writer.writerow(["configuration", *PERCENTILE_LABELS, "overhead_pct"])
         for result in results:
             pcts = result.percentiles()
-            writer.writerow([
-                result.name,
-                *[f"{pcts[label]:.1f}" for label in PERCENTILE_LABELS],
-                f"{result.overhead_percent:.1f}",
-            ])
+            writer.writerow(
+                [
+                    result.name,
+                    *[f"{pcts[label]:.1f}" for label in PERCENTILE_LABELS],
+                    f"{result.overhead_percent:.1f}",
+                ]
+            )
     return RESULTS_CSV
 
 
@@ -163,51 +180,37 @@ def _print_stats(result: BenchmarkResult) -> None:
         return
     snap = result.stats.snapshot()
     print(f"  [{result.name}] hedge stats:")
-    print(f"    total={snap.total_requests}  hedged={snap.hedged_requests}  "
-          f"hedge_wins={snap.hedge_wins}  primary_wins={snap.primary_wins}  "
-          f"budget_exhausted={snap.budget_exhausted}  "
-          f"hedge_rate={result.stats.hedge_rate():.2%}")
+    print(
+        f"    total={snap.total_requests}  hedged={snap.hedged_requests}  "
+        f"hedge_wins={snap.hedge_wins}  primary_wins={snap.primary_wins}  "
+        f"budget_exhausted={snap.budget_exhausted}  "
+        f"hedge_rate={result.stats.hedge_rate():.2%}"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Configurations
 # ---------------------------------------------------------------------------
-def _make_no_hedge_transport() -> tuple[SimulatedBackendTransport, httpx.AsyncBaseTransport]:
-    backend = SimulatedBackendTransport()
-    return backend, backend
-
-
-def _make_static_transport(
-    delay_seconds: float,
-    budget_percent: float = 10.0,
-    estimated_rps: float = 100.0,
-) -> tuple[SimulatedBackendTransport, HedgedHttpxTransport]:
-    backend = SimulatedBackendTransport()
-    config = HedgeConfig(
+def _make_static_config(delay_seconds: float) -> HedgeConfig:
+    return HedgeConfig(
         percentile=0.90,
-        budget_percent=budget_percent,
-        estimated_rps=estimated_rps,
+        budget_percent=10.0,
+        estimated_rps=100.0,
         min_delay=delay_seconds,
         warmup_requests=0,
         warmup_delay=delay_seconds,
     )
-    return backend, HedgedHttpxTransport(inner=backend, config=config)
 
 
-def _make_adaptive_transport(
-    budget_percent: float = 10.0,
-    estimated_rps: float = 100.0,
-) -> tuple[SimulatedBackendTransport, HedgedHttpxTransport]:
-    backend = SimulatedBackendTransport()
-    config = HedgeConfig(
+def _make_adaptive_config() -> HedgeConfig:
+    return HedgeConfig(
         percentile=0.90,
-        budget_percent=budget_percent,
-        estimated_rps=estimated_rps,
+        budget_percent=10.0,
+        estimated_rps=100.0,
         min_delay=0.001,
         warmup_requests=20,
         warmup_delay=0.01,
     )
-    return backend, HedgedHttpxTransport(inner=backend, config=config)
 
 
 # ---------------------------------------------------------------------------
@@ -231,49 +234,51 @@ class TestHedgeComparison:
           4. Adaptive (hedge)
         """
         seed = 42
-        url = "http://backend/api"
+        server = _BenchServer()
+        await server.start()
+        url = f"http://127.0.0.1:{server.port}/api"
         results: list[BenchmarkResult] = []
 
-        configs: list[tuple[str, int]] = [
-            ("No hedging", seed),
-            ("Static 10ms", seed),
-            ("Static 50ms", seed),
-            ("Adaptive (hedge)", seed),
+        configs: list[tuple[str, HedgeConfig | None]] = [
+            ("No hedging", None),
+            ("Static 10ms", _make_static_config(0.01)),
+            ("Static 50ms", _make_static_config(0.05)),
+            ("Adaptive (hedge)", _make_adaptive_config()),
         ]
 
-        for config_name, config_seed in configs:
-            random.seed(config_seed)
+        try:
+            for config_name, config in configs:
+                random.seed(seed)
+                server.reset()
 
-            if config_name == "No hedging":
-                backend, transport = _make_no_hedge_transport()
-                stats = None
-            elif config_name == "Static 10ms":
-                backend, transport = _make_static_transport(0.01)
-                stats = transport.stats  # type: ignore[union-attr]
-            elif config_name == "Static 50ms":
-                backend, transport = _make_static_transport(0.05)
-                stats = transport.stats  # type: ignore[union-attr]
-            else:
-                backend, transport = _make_adaptive_transport()
-                stats = transport.stats  # type: ignore[union-attr]
+                if config is None:
+                    stats = None
+                    async with httpx.AsyncClient(base_url=url) as client:
+                        latencies = await _run_requests(client, url, REQUEST_COUNT)
+                else:
+                    transport = HedgedHttpxTransport(config=config)
+                    stats = transport.stats
+                    async with httpx.AsyncClient(transport=transport, base_url=url) as client:
+                        latencies = await _run_requests(client, url, REQUEST_COUNT)
+                    await transport.aclose()
 
-            async with httpx.AsyncClient(transport=transport) as client:
-                latencies = await _run_requests(client, url, REQUEST_COUNT)
-
-            results.append(BenchmarkResult(
-                name=config_name,
-                latencies=latencies,
-                backend_calls=backend.call_count,
-                stats=stats,
-            ))
-
-            if hasattr(transport, "aclose"):
-                await transport.aclose()  # type: ignore[union-attr]
+                results.append(
+                    BenchmarkResult(
+                        name=config_name,
+                        latencies=latencies,
+                        backend_calls=server.call_count,
+                        stats=stats,
+                    )
+                )
+        finally:
+            await server.stop()
 
         # --- Output ---
-        print(f"\n  Benchmark: {REQUEST_COUNT} requests, "
-              f"lognormal(mean={BASE_MEAN_MS}ms, stddev={BASE_STDDEV_MS}ms), "
-              f"{STRAGGLER_PROB:.0%} stragglers x {STRAGGLER_MULTIPLIER:.0f}")
+        print(
+            f"\n  Benchmark: {REQUEST_COUNT} requests, "
+            f"lognormal(mean={BASE_MEAN_MS}ms, stddev={BASE_STDDEV_MS}ms), "
+            f"{STRAGGLER_PROB:.0%} stragglers x {STRAGGLER_MULTIPLIER:.0f}"
+        )
         _print_markdown_table(results)
 
         for result in results:
@@ -289,26 +294,32 @@ class TestHedgeComparison:
 
     async def test_no_hedge_vs_adaptive(self) -> None:
         """Quick two-way comparison: no hedging vs adaptive hedging."""
-        random.seed(42)
-        url = "http://backend/api"
+        server = _BenchServer()
+        await server.start()
+        url = f"http://127.0.0.1:{server.port}/api"
 
-        # No hedge
-        backend_bare, transport_bare = _make_no_hedge_transport()
-        async with httpx.AsyncClient(transport=transport_bare) as client:
-            no_hedge_latencies = await _run_requests(client, url, REQUEST_COUNT)
+        try:
+            # No hedge
+            random.seed(42)
+            async with httpx.AsyncClient(base_url=url) as client:
+                no_hedge_latencies = await _run_requests(client, url, REQUEST_COUNT)
+            no_hedge_calls = server.call_count
 
-        # Adaptive hedge
-        random.seed(42)
-        backend_adaptive, transport_adaptive = _make_adaptive_transport()
-        async with httpx.AsyncClient(transport=transport_adaptive) as client:
-            hedge_latencies = await _run_requests(client, url, REQUEST_COUNT)
+            # Adaptive hedge
+            random.seed(42)
+            server.reset()
+            transport = HedgedHttpxTransport(config=_make_adaptive_config())
+            async with httpx.AsyncClient(transport=transport, base_url=url) as client:
+                hedge_latencies = await _run_requests(client, url, REQUEST_COUNT)
+            hedge_calls = server.call_count
+        finally:
+            await server.stop()
 
         results = [
-            BenchmarkResult("No hedging", no_hedge_latencies, backend_bare.call_count),
-            BenchmarkResult("Adaptive (hedge)", hedge_latencies, backend_adaptive.call_count,
-                            stats=transport_adaptive.stats),
+            BenchmarkResult("No hedging", no_hedge_latencies, no_hedge_calls),
+            BenchmarkResult("Adaptive (hedge)", hedge_latencies, hedge_calls, stats=transport.stats),
         ]
         _print_markdown_table(results)
         _print_stats(results[1])
 
-        await transport_adaptive.aclose()
+        await transport.aclose()

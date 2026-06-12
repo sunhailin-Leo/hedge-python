@@ -19,6 +19,9 @@ uv run python examples/<file>.py
 |---------|-----------|-------|
 | [`httpx_basic.py`](httpx_basic.py) | httpx | Wraps `httpx.AsyncClient` with `HedgedHttpxTransport`. Hits `httpbin.org` so it needs internet access. |
 | [`aiohttp_basic.py`](aiohttp_basic.py) | aiohttp | Drop-in replacement `HedgedAiohttpSession`. Hits `httpbin.org`. |
+| [`niquests_basic.py`](niquests_basic.py) | niquests | Drop-in replacement `HedgedNiquestsSession`. Hits `httpbin.org`. |
+| [`tornado_basic.py`](tornado_basic.py) | tornado | Wraps `AsyncHTTPClient` with `HedgedTornadoClient`. Hits `httpbin.org`. |
+| [`openai_hedged.py`](openai_hedged.py) | OpenAI SDK | Injects `HedgedHttpxTransport` into `AsyncOpenAI` via `http_client`. Requires `OPENAI_API_KEY`. |
 | [`grpc_unary.py`](grpc_unary.py) | gRPC unary | **Self-contained** — starts a local gRPC server with random 80ms stragglers, trains the sketch, then fires a batch where hedging is guaranteed to trigger. |
 | [`grpc_stream.py`](grpc_stream.py) | gRPC server streaming | **Self-contained** — same idea, but hedge fires on slow time-to-first-message (TTFM). |
 
