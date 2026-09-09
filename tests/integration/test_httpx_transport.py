@@ -223,7 +223,10 @@ class TestHedgedHttpxTransport:
 
             fast_sketch = transport._scheduler.sketch_for("testhost /fast")
             slow_sketch = transport._scheduler.sketch_for("testhost /slow")
-            assert fast_sketch.quantile(0.90) < 0.01
+            # 0.05 (not ~2x the nominal fast delay) absorbs scheduler jitter
+            # on CI runners where asyncio.sleep precision can exceed 15ms
+            # (notably Windows), while staying far below the slow estimate.
+            assert fast_sketch.quantile(0.90) < 0.05
             assert slow_sketch.quantile(0.90) > 0.1
         await transport.aclose()
 
