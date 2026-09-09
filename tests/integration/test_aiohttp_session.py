@@ -143,3 +143,53 @@ class TestHedgedAiohttpSession:
                 assert snap.hedged_requests == 0
         finally:
             await runner.cleanup()
+
+    async def test_endpoint_mode_isolates_latency_profiles(self) -> None:
+        """key_level="endpoint": fast and slow routes on one host learn
+        independent hedge delays (issue #2)."""
+
+        async def fast_handler(request: aiohttp.web.Request) -> aiohttp.web.Response:
+            await asyncio.sleep(0.001)
+            return aiohttp.web.Response(text="fast")
+
+        async def slow_handler(request: aiohttp.web.Request) -> aiohttp.web.Response:
+            await asyncio.sleep(0.15)
+            return aiohttp.web.Response(text="slow")
+
+        app = aiohttp.web.Application()
+        app.router.add_get("/fast", fast_handler)
+        app.router.add_get("/slow", slow_handler)
+        runner = aiohttp.web.AppRunner(app)
+        await runner.setup()
+        site = aiohttp.web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]  # type: ignore[union-attr]
+        base_url = f"http://127.0.0.1:{port}"
+
+        try:
+            config = HedgeConfig(
+                key_level="endpoint",
+                warmup_requests=0,
+                warmup_delay=0.001,
+                min_delay=0.001,
+            )
+            async with HedgedAiohttpSession(config=config) as session:
+                for _ in range(3):
+                    resp = await session.get(f"{base_url}/fast")
+                    await resp.text()
+                    resp = await session.get(f"{base_url}/slow")
+                    await resp.text()
+
+                # Assert before the context exits: closing the session
+                # clears the scheduler's sketch map.
+                keys = set(session._scheduler._sketches)
+                assert len(keys) == 2
+                assert any(k.endswith(" /fast") for k in keys)
+                assert any(k.endswith(" /slow") for k in keys)
+
+                fast_sketch = session._scheduler.sketch_for(f"127.0.0.1:{port} /fast")
+                slow_sketch = session._scheduler.sketch_for(f"127.0.0.1:{port} /slow")
+                assert fast_sketch.quantile(0.90) < 0.05
+                assert slow_sketch.quantile(0.90) > 0.1
+        finally:
+            await runner.cleanup()

@@ -1,5 +1,7 @@
 """Unit tests for HedgeConfig."""
 
+import pytest
+
 from hedge._options import HedgeConfig
 
 
@@ -14,6 +16,7 @@ class TestHedgeConfig:
         assert config.warmup_requests == 20
         assert config.warmup_delay == 0.01
         assert config.window_duration == 30.0
+        assert config.key_level == "host"
         assert config.stats is None
 
     def test_custom_values(self) -> None:
@@ -35,3 +38,11 @@ class TestHedgeConfig:
         assert config.warmup_requests == 50
         assert config.warmup_delay == 0.02
         assert config.window_duration == 60.0
+
+    def test_key_level_endpoint(self) -> None:
+        config = HedgeConfig(key_level="endpoint")
+        assert config.key_level == "endpoint"
+
+    def test_key_level_invalid_raises(self) -> None:
+        with pytest.raises(ValueError, match="key_level"):
+            HedgeConfig(key_level="per-endpoint")  # common typo

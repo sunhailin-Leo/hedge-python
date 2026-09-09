@@ -23,7 +23,7 @@ except ImportError as exc:
     ) from exc
 
 from hedge._options import HedgeConfig
-from hedge.transport._base import HedgeScheduler, extract_host
+from hedge.transport._base import HedgeScheduler, extract_key
 
 if TYPE_CHECKING:
     from hedge._stats import Stats
@@ -35,6 +35,10 @@ class HedgedHttpxTransport(httpx.AsyncBaseTransport):
     Wraps an inner transport (default: ``httpx.AsyncHTTPTransport``) and
     races a backup request when the primary exceeds its estimated latency
     percentile.
+
+    Latency is learned per host by default; set ``HedgeConfig(key_level=
+    "endpoint")`` to learn per host+path instead, so endpoints with
+    different latency profiles on the same host do not skew each other.
 
     Args:
         inner: The underlying transport to wrap. Defaults to a new
@@ -58,8 +62,8 @@ class HedgedHttpxTransport(httpx.AsyncBaseTransport):
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         """Handle an outgoing request with adaptive hedging."""
-        host = extract_host(str(request.url))
-        sketch = self._scheduler.sketch_for(host)
+        key = extract_key(str(request.url), self._config.key_level)
+        sketch = self._scheduler.sketch_for(key)
 
         can_hedge = request.method.upper() in ("GET", "HEAD", "OPTIONS")
 
@@ -70,7 +74,7 @@ class HedgedHttpxTransport(httpx.AsyncBaseTransport):
             sketch.add(elapsed)
 
         return await self._scheduler.execute_with_hedge(
-            host=host,
+            key=key,
             primary_func=do_request,
             hedge_func=do_request,
             record_latency=record_latency,

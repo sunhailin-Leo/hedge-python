@@ -103,7 +103,7 @@ class TestHedgeScheduler:
             return "hedge"
 
         result = await scheduler.execute_with_hedge(
-            host="host-a",
+            key="host-a",
             primary_func=fast_primary,
             hedge_func=slow_hedge,
             record_latency=lambda r, t: sketch.add(t),
@@ -136,7 +136,7 @@ class TestHedgeScheduler:
             return "hedge"
 
         result = await scheduler.execute_with_hedge(
-            host="host-a",
+            key="host-a",
             primary_func=slow_primary,
             hedge_func=fast_hedge,
             record_latency=lambda r, t: sketch.add(t),
@@ -161,7 +161,7 @@ class TestHedgeScheduler:
             return "hedge"
 
         result = await scheduler.execute_with_hedge(
-            host="host-a",
+            key="host-a",
             primary_func=slow_primary,
             hedge_func=fast_hedge,
             record_latency=lambda r, t: sketch.add(t),
@@ -195,7 +195,7 @@ class TestHedgeScheduler:
             return "hedge"
 
         result = await scheduler.execute_with_hedge(
-            host="host-a",
+            key="host-a",
             primary_func=slow_primary,
             hedge_func=fast_hedge,
             record_latency=lambda r, t: sketch.add(t),

@@ -26,7 +26,7 @@ except ImportError as exc:
     ) from exc
 
 from hedge._options import HedgeConfig
-from hedge.transport._base import HedgeScheduler, extract_host
+from hedge.transport._base import HedgeScheduler, extract_key
 
 if TYPE_CHECKING:
     from hedge._stats import Stats
@@ -37,6 +37,10 @@ class HedgedTornadoClient:
 
     Wraps a ``tornado.httpclient.AsyncHTTPClient`` and races a backup request
     when the primary exceeds its estimated latency percentile.
+
+    Latency is learned per host by default; set ``HedgeConfig(key_level=
+    "endpoint")`` to learn per host+path instead, so endpoints with
+    different latency profiles on the same host do not skew each other.
 
     Args:
         config: Hedge configuration. Defaults to ``HedgeConfig()``.
@@ -89,8 +93,8 @@ class HedgedTornadoClient:
             request_obj = request
             per_request_raise_error = kwargs.pop("raise_error", self._raise_error) if kwargs else self._raise_error
 
-        host = extract_host(request_obj.url)
-        sketch = self._scheduler.sketch_for(host)
+        key = extract_key(str(request_obj.url), self._config.key_level)
+        sketch = self._scheduler.sketch_for(key)
 
         method = (request_obj.method or "GET").upper()
         can_hedge = method in ("GET", "HEAD", "OPTIONS")
@@ -105,7 +109,7 @@ class HedgedTornadoClient:
             sketch.add(elapsed)
 
         return await self._scheduler.execute_with_hedge(
-            host=host,
+            key=key,
             primary_func=do_request,
             hedge_func=do_request,
             record_latency=record_latency,

@@ -190,3 +190,62 @@ class TestHedgedHttpxTransport:
         transport = HedgedHttpxTransport(inner=inner)
         assert transport._config.percentile == 0.90
         await transport.aclose()
+
+    async def test_endpoint_mode_isolates_latency_profiles(self) -> None:
+        """key_level="endpoint": fast and slow endpoints on one host learn
+        independent hedge delays (issue #2)."""
+        delays = {"/fast": 0.001, "/slow": 0.15}
+
+        class PerPathTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+                await asyncio.sleep(delays[request.url.path])
+                return httpx.Response(200, text="ok")
+
+        config = HedgeConfig(
+            key_level="endpoint",
+            warmup_requests=0,
+            warmup_delay=0.001,
+            min_delay=0.001,
+            budget_percent=100.0,
+            estimated_rps=1000.0,
+        )
+        transport = HedgedHttpxTransport(inner=PerPathTransport(), config=config)
+
+        async with httpx.AsyncClient(transport=transport) as client:
+            for _ in range(5):
+                await client.get("http://testhost/fast")
+                await client.get("http://testhost/slow")
+
+            # Assert before the context exits: closing the client clears
+            # the scheduler's sketch map.
+            keys = set(transport._scheduler._sketches)
+            assert keys == {"testhost /fast", "testhost /slow"}
+
+            fast_sketch = transport._scheduler.sketch_for("testhost /fast")
+            slow_sketch = transport._scheduler.sketch_for("testhost /slow")
+            assert fast_sketch.quantile(0.90) < 0.01
+            assert slow_sketch.quantile(0.90) > 0.1
+        await transport.aclose()
+
+    async def test_host_mode_pools_endpoints_on_same_host(self) -> None:
+        """Default key_level="host": endpoints on one host share one sketch."""
+
+        class PerPathTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+                await asyncio.sleep(0.001)
+                return httpx.Response(200, text="ok")
+
+        config = HedgeConfig(
+            key_level="host",
+            warmup_requests=0,
+            warmup_delay=0.001,
+            min_delay=0.001,
+        )
+        transport = HedgedHttpxTransport(inner=PerPathTransport(), config=config)
+
+        async with httpx.AsyncClient(transport=transport) as client:
+            await client.get("http://testhost/fast")
+            await client.get("http://testhost/slow")
+
+            assert set(transport._scheduler._sketches) == {"testhost"}
+        await transport.aclose()

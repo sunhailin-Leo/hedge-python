@@ -25,7 +25,7 @@ except ImportError as exc:
     ) from exc
 
 from hedge._options import HedgeConfig
-from hedge.transport._base import HedgeScheduler, extract_host
+from hedge.transport._base import HedgeScheduler, extract_key
 
 if TYPE_CHECKING:
     from hedge._stats import Stats
@@ -36,6 +36,10 @@ class HedgedNiquestsSession:
 
     Wraps a ``niquests.AsyncSession`` and races a backup request when the
     primary exceeds its estimated latency percentile.
+
+    Latency is learned per host by default; set ``HedgeConfig(key_level=
+    "endpoint")`` to learn per host+path instead, so endpoints with
+    different latency profiles on the same host do not skew each other.
 
     Args:
         config: Hedge configuration. Defaults to ``HedgeConfig()``.
@@ -70,8 +74,8 @@ class HedgedNiquestsSession:
         **kwargs: Any,
     ) -> niquests.Response:
         """Perform a hedged request."""
-        host = extract_host(url)
-        sketch = self._scheduler.sketch_for(host)
+        key = extract_key(str(url), self._config.key_level)
+        sketch = self._scheduler.sketch_for(key)
 
         can_hedge = method.upper() in ("GET", "HEAD", "OPTIONS")
         session = self._get_session()
@@ -83,7 +87,7 @@ class HedgedNiquestsSession:
             sketch.add(elapsed)
 
         return await self._scheduler.execute_with_hedge(
-            host=host,
+            key=key,
             primary_func=do_request,
             hedge_func=do_request,
             record_latency=record_latency,
