@@ -12,7 +12,8 @@
 [bhope/hedge](https://github.com/bhope/hedge) の Python 移植版 ——
 **テールレイテンシ最適化のための適応型ヘッジリクエストライブラリ** です。
 
-`hedge-python` は [DDSketch](https://arxiv.org/abs/2004.08604) を用いてホストごとのレイテンシ分布を学習し、
+`hedge-python` は [DDSketch](https://arxiv.org/abs/2004.08604) を用いてホストごと（オプションで
+[エンドポイントごと](#エンドポイントごとのレイテンシプロファイルper-endpoint-latency-profiles)）のレイテンシ分布を学習し、
 プライマリリクエストが推定 p90 を超えた時点でバックアップリクエストを発射、
 さらにトークンバケットでヘッジレートを制限することで、障害時の負荷増幅を防ぎます。
 **設定不要** で、**httpx**、**aiohttp**、**niquests**、**tornado**、**gRPC**（unary + server-streaming）を第一級でサポートします。

@@ -11,7 +11,7 @@
 
 [bhope/hedge](https://github.com/bhope/hedge) 的 Python 移植版本 —— **面向尾延迟优化的自适应对冲请求库**。
 
-`hedge-python` 使用 [DDSketch](https://arxiv.org/abs/2004.08604) 学习每个目标主机的延迟分布，当主请求超过估算的 p90 时立即发起备份请求，并通过令牌桶限制对冲速率，避免在故障期间放大流量。**零配置开箱即用**，原生支持 **httpx**、**aiohttp**、**niquests**、**tornado** 和 **gRPC**（unary + server-streaming）。同时支持通过 `http_client` 参数无缝集成 **OpenAI Python SDK**。
+`hedge-python` 使用 [DDSketch](https://arxiv.org/abs/2004.08604) 学习每个目标主机（可选升级为[按端点](#按端点延迟画像per-endpoint-latency-profiles)）的延迟分布，当主请求超过估算的 p90 时立即发起备份请求，并通过令牌桶限制对冲速率，避免在故障期间放大流量。**零配置开箱即用**，原生支持 **httpx**、**aiohttp**、**niquests**、**tornado** 和 **gRPC**（unary + server-streaming）。同时支持通过 `http_client` 参数无缝集成 **OpenAI Python SDK**。
 
 灵感来自 Dean & Barroso 的 [_The Tail at Scale_](https://research.google/pubs/the-tail-at-scale/)（CACM 2013）。
 

@@ -1,6 +1,6 @@
 [project]
 name = "hedge-python"
-version = "0.2.0"
+version = "0.3.0"
 description = "Adaptive hedged request library for Python. Learns per-host latency via DDSketch, fires backup requests at estimated p90, caps hedge rate with token bucket."
 readme = "README.md"
 license = { text = "MIT" }

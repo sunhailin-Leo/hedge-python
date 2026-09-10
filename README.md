@@ -10,7 +10,8 @@
 Python port of [bhope/hedge](https://github.com/bhope/hedge) — **adaptive hedged
 requests for tail-latency optimisation**.
 
-`hedge-python` learns per-host latency distributions with
+`hedge-python` learns per-host (or, optionally,
+[per-endpoint](#per-endpoint-latency-profiles)) latency distributions with
 [DDSketch](https://arxiv.org/abs/2004.08604), races a backup request when the
 primary exceeds its estimated p90, and caps the hedge rate with a token bucket
 to prevent load amplification during outages. Zero configuration required.
