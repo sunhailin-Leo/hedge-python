@@ -18,6 +18,7 @@ uv run python examples/<file>.py
 | Example | Framework | Notes |
 |---------|-----------|-------|
 | [`httpx_basic.py`](httpx_basic.py) | httpx | Wraps `httpx.AsyncClient` with `HedgedHttpxTransport`. Hits `httpbin.org` so it needs internet access. |
+| [`httpx_endpoint_profiles.py`](httpx_endpoint_profiles.py) | httpx | **Self-contained** — per-endpoint latency profiles (`key_level="endpoint"`, issue #2): a fast and a slow endpoint on the same host learn independent p90s. No network needed. |
 | [`aiohttp_basic.py`](aiohttp_basic.py) | aiohttp | Drop-in replacement `HedgedAiohttpSession`. Hits `httpbin.org`. |
 | [`niquests_basic.py`](niquests_basic.py) | niquests | Drop-in replacement `HedgedNiquestsSession`. Hits `httpbin.org`. |
 | [`tornado_basic.py`](tornado_basic.py) | tornado | Wraps `AsyncHTTPClient` with `HedgedTornadoClient`. Hits `httpbin.org`. |
@@ -52,3 +53,9 @@ conditions when talking to `httpbin.org`.
 * **Idempotency** — non-idempotent verbs (`POST` / `PUT` / `DELETE`) are
   **not** hedged automatically. Only `GET` / `HEAD` / `OPTIONS` and
   Unary/ServerStream gRPC calls are.
+* **`key_level`** — the default `"host"` pools every endpoint on one host
+  into a single sketch. Switch to `"endpoint"` when endpoints on the same
+  host have very different latency profiles (see
+  [`httpx_endpoint_profiles.py`](httpx_endpoint_profiles.py)). Query
+  strings never fork sketches; if your paths embed IDs (`/users/123`),
+  expect one sketch per distinct path.

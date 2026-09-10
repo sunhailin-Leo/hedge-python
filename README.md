@@ -3,14 +3,15 @@
 **English** | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
 [![CI](https://github.com/sunhailin-Leo/hedge-python/actions/workflows/ci.yml/badge.svg)](https://github.com/sunhailin-Leo/hedge-python/actions)
-[![Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen.svg)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-99%25-brightgreen.svg)](#testing)
 [![Python](https://img.shields.io/badge/python-3.9%E2%80%933.14-blue.svg)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Python port of [bhope/hedge](https://github.com/bhope/hedge) — **adaptive hedged
 requests for tail-latency optimisation**.
 
-`hedge-python` learns per-host latency distributions with
+`hedge-python` learns per-host (or, optionally,
+[per-endpoint](#per-endpoint-latency-profiles)) latency distributions with
 [DDSketch](https://arxiv.org/abs/2004.08604), races a backup request when the
 primary exceeds its estimated p90, and caps the hedge rate with a token bucket
 to prevent load amplification during outages. Zero configuration required.
@@ -187,8 +188,10 @@ streaming; the loser is cancelled at the wire level.
 
 ### 1. DDSketch quantile estimator
 
-Each target host gets a `WindowedSketch` — a pair of DDSketches that rotate
-every 30 seconds. DDSketch uses logarithmic bucket mapping to provide
+Each target — per host by default, or per host+path with
+[`key_level="endpoint"`](#per-endpoint-latency-profiles) — gets a
+`WindowedSketch` — a pair of DDSketches that rotate every 30 seconds.
+DDSketch uses logarithmic bucket mapping to provide
 **relative-error guarantees**: any quantile estimate is within ±1% of the
 true value, regardless of the underlying distribution.
 
@@ -222,6 +225,40 @@ end-to-end RPC latency. Cancelling a loser invokes `call.cancel()` first
 
 ---
 
+## Per-endpoint latency profiles
+
+By default the sketch keys on host, so every endpoint on one host shares a
+single p90 estimate. That's a poor fit when endpoints on the same host have
+wildly different latencies: a few calls to a slow `/bulk-export` (~900ms)
+drag the shared estimate up, and the fast `/fast-lookup` (~10ms) hedges far
+too late to help (see [issue #2](https://github.com/sunhailin-Leo/hedge-python/issues/2)).
+
+Set `key_level="endpoint"` to key the sketch (and the per-request warmup
+counter) by `host + path` instead. Each endpoint learns its own p90, while
+the client, its connection pool, and the token-bucket budget stay shared —
+no `mounts={...}` with one separate transport (and pool) per route needed:
+
+```python
+config = HedgeConfig(key_level="endpoint")
+transport = HedgedHttpxTransport(config=config)
+async with httpx.AsyncClient(transport=transport) as client:
+    await client.get("https://api.example.com/fast-lookup")  # learns ~10ms p90
+    await client.get("https://api.example.com/bulk-export")  # learns ~900ms p90
+```
+
+Query strings are excluded from the endpoint key. The option works across
+all HTTP transports (**httpx**, **aiohttp**, **niquests**, **tornado**);
+the gRPC interceptors already track latency per RPC method — the gRPC
+equivalent of endpoint level — by design. See
+[`examples/httpx_endpoint_profiles.py`](examples/httpx_endpoint_profiles.py)
+for a runnable demo.
+
+> **Cardinality note:** the endpoint key is the raw path. Paths that embed
+> IDs (`/users/123`) open one sketch per distinct path. Prefer stable
+> paths, or keep `key_level="host"` for such APIs.
+
+---
+
 ## Configuration
 
 All knobs live on `HedgeConfig`:
@@ -236,6 +273,7 @@ All knobs live on `HedgeConfig`:
 | `warmup_requests` | `int` | `20` | Number of initial requests using fixed delay |
 | `warmup_delay` | `float` | `0.01` | Fixed hedge delay during warmup in seconds |
 | `window_duration` | `float` | `30.0` | Sketch window rotation interval in seconds |
+| `key_level` | `str` | `"host"` | Latency-profile granularity: `"host"` (one sketch per host) or `"endpoint"` (one sketch per host+path) |
 | `stats` | `Stats \| None` | `None` | Inject a custom `Stats` for observability |
 
 > **Tip — `estimated_rps`**: pick a value close to your real RPS so the token
@@ -294,7 +332,7 @@ make typecheck          # mypy
 make test               # all tests
 make test-unit          # unit tests only
 make test-integration   # integration tests (requires httpx / aiohttp / grpcio)
-make coverage           # coverage report (current: 96%)
+make coverage           # coverage report (current: 99%)
 make bench-multi        # multi-framework benchmark
 make bench-plot         # render charts
 make ci                 # lint + typecheck + test + coverage
@@ -310,7 +348,7 @@ make ci                 # lint + typecheck + test + coverage
 * **Benchmarks** (`tests/benchmark/`): DDSketch microbench, token bucket
   microbench, four-config comparison, three-framework comparison.
 
-Current coverage: **97%** (150 tests, ~7 seconds).
+Current coverage: **99%** (190 tests, ~8 seconds).
 
 ---
 

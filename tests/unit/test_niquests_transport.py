@@ -153,3 +153,45 @@ class TestHedgedNiquestsSessionLifecycle:
         # Close should shut down the real session and clear the reference
         await session.close()
         assert session._session is None
+
+
+class TestHedgedNiquestsSessionEndpointProfiles:
+    """key_level="endpoint": sketches are keyed per host+path (issue #2)."""
+
+    @pytest.mark.asyncio
+    async def test_endpoint_mode_separate_sketches(self) -> None:
+        config = HedgeConfig(key_level="endpoint", warmup_requests=0, warmup_delay=0.001)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        with patch.object(HedgedNiquestsSession, "_get_session") as mock_get:
+            mock_session = AsyncMock()
+            mock_session.request = AsyncMock(return_value=mock_response)
+            mock_get.return_value = mock_session
+
+            async with HedgedNiquestsSession(config=config) as session:
+                await session.get("https://api.example.com/fast-lookup")
+                await session.get("https://api.example.com/bulk-export")
+
+                keys = set(session._scheduler._sketches)
+                assert keys == {
+                    "api.example.com /fast-lookup",
+                    "api.example.com /bulk-export",
+                }
+
+    @pytest.mark.asyncio
+    async def test_host_mode_pooled_sketch(self) -> None:
+        config = HedgeConfig(warmup_requests=0, warmup_delay=0.001)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        with patch.object(HedgedNiquestsSession, "_get_session") as mock_get:
+            mock_session = AsyncMock()
+            mock_session.request = AsyncMock(return_value=mock_response)
+            mock_get.return_value = mock_session
+
+            async with HedgedNiquestsSession(config=config) as session:
+                await session.get("https://api.example.com/fast-lookup")
+                await session.get("https://api.example.com/bulk-export")
+
+                assert set(session._scheduler._sketches) == {"api.example.com"}

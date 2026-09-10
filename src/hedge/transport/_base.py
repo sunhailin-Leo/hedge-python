@@ -10,14 +10,13 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
 from urllib.parse import urlparse
 
+from hedge._options import KEY_LEVELS, HedgeConfig
 from hedge._stats import Stats
 from hedge.budget import TokenBucket
 from hedge.sketch import WindowedSketch
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Coroutine
-
-    from hedge._options import HedgeConfig
 
 T = TypeVar("T")
 
@@ -43,11 +42,36 @@ def extract_host(url: str) -> str:
     return hostname or url
 
 
+def extract_key(url: str, key_level: str = "host") -> str:
+    """Compute the latency-profile key for a URL at the given granularity.
+
+    ``key_level="host"`` returns the per-host key (see :func:`extract_host`),
+    pooling all requests to the same host into one sketch.
+
+    ``key_level="endpoint"`` returns ``"<host> <path>"`` (e.g.
+    ``"api.example.com /fast-lookup"``), so endpoints with different latency
+    profiles on the same host are tracked in separate sketches while
+    still sharing a single client and connection pool. Query strings and
+    fragments are excluded from the endpoint key to keep cardinality low.
+
+    Raises:
+        ValueError: If *key_level* is not one of ``("host", "endpoint")``.
+    """
+    if key_level == "host":
+        return extract_host(url)
+    if key_level == "endpoint":
+        host = extract_host(url)
+        path = urlparse(url).path or "/"
+        return f"{host} {path}"
+    raise ValueError(f"key_level must be one of {KEY_LEVELS}, got {key_level!r}")
+
+
 class HedgeScheduler:
     """Core async hedge scheduling shared across frameworks.
 
-    Manages per-host sketches, request counters, token bucket budget,
-    and the race-then-cancel logic.
+    Manages per-key sketches (per host, or per host+endpoint when
+    ``HedgeConfig.key_level="endpoint"``), request counters, token bucket
+    budget, and the race-then-cancel logic.
 
     This is an internal building block; users should use the framework-specific
     transports (httpx, aiohttp) or interceptors (gRPC).
@@ -60,33 +84,33 @@ class HedgeScheduler:
         self._sketches: dict[str, WindowedSketch] = {}
         self._counters: dict[str, int] = defaultdict(int)
 
-    def sketch_for(self, host: str) -> WindowedSketch:
-        """Get or create a WindowedSketch for the given host."""
-        if host not in self._sketches:
+    def sketch_for(self, key: str) -> WindowedSketch:
+        """Get or create a WindowedSketch for the given host or endpoint key."""
+        if key not in self._sketches:
             sketch = WindowedSketch(
                 relative_accuracy=0.01,
                 window_duration=self.config.window_duration,
             )
             sketch.start_async()
-            self._sketches[host] = sketch
-        return self._sketches[host]
+            self._sketches[key] = sketch
+        return self._sketches[key]
 
-    def increment_counter(self, host: str) -> int:
-        """Increment and return the request counter for a host.
+    def increment_counter(self, key: str) -> int:
+        """Increment and return the request counter for a host or endpoint key.
 
         Safe without a lock because asyncio is single-threaded and this
         method contains no ``await`` suspension points.
         """
-        self._counters[host] += 1
-        return self._counters[host]
+        self._counters[key] += 1
+        return self._counters[key]
 
-    def compute_hedge_delay(self, host: str, request_number: int) -> float:
-        """Compute the hedge delay in seconds for a given host and request number."""
+    def compute_hedge_delay(self, key: str, request_number: int) -> float:
+        """Compute the hedge delay in seconds for a given key and request number."""
         if request_number <= self.config.warmup_requests:
             self.stats.increment_warmup()
             delay = self.config.warmup_delay
         else:
-            sketch = self.sketch_for(host)
+            sketch = self.sketch_for(key)
             estimate = sketch.quantile(self.config.percentile)
             delay = estimate if estimate > 0 and not math.isnan(estimate) else self.config.warmup_delay
 
@@ -94,7 +118,7 @@ class HedgeScheduler:
 
     async def execute_with_hedge(
         self,
-        host: str,
+        key: str,
         primary_func: Callable[[], Awaitable[T]],
         hedge_func: Callable[[], Awaitable[T]],
         record_latency: Callable[[T, float], None],
@@ -103,7 +127,7 @@ class HedgeScheduler:
         """Execute primary request with hedge racing logic.
 
         Args:
-            host: Target host key for per-host sketch tracking.
+            key: Target host or endpoint key for sketch tracking.
             primary_func: Async callable that performs the primary request.
             hedge_func: Async callable that performs the hedge request.
             record_latency: Callback to record latency to the sketch.
@@ -114,8 +138,8 @@ class HedgeScheduler:
         """
         self.stats.increment_total()
 
-        request_number = self.increment_counter(host)
-        hedge_delay = self.compute_hedge_delay(host, request_number)
+        request_number = self.increment_counter(key)
+        hedge_delay = self.compute_hedge_delay(key, request_number)
         start = time.monotonic()
 
         # Launch primary. ``primary_func()`` returns ``Awaitable[T]`` in the

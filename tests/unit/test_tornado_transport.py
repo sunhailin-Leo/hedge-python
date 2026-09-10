@@ -161,3 +161,56 @@ class TestHedgedTornadoClientLifecycle:
         await client.close()
         # External client should not be closed by HedgedTornadoClient
         external.close()
+
+
+@pytest.mark.asyncio
+class TestHedgedTornadoClientEndpointProfiles:
+    """key_level="endpoint": sketches are keyed per host+path (issue #2)."""
+
+    async def test_endpoint_mode_separate_sketches(self) -> None:
+        config = HedgeConfig(key_level="endpoint", warmup_requests=0, warmup_delay=0.001)
+        mock_response = _make_tornado_response()
+
+        with patch.object(HedgedTornadoClient, "__init__", lambda self, **kw: None):
+            client = HedgedTornadoClient.__new__(HedgedTornadoClient)
+            client._config = config
+            client._raise_error = True
+            client._owns_client = False
+            client._client = AsyncMock()
+            client._client.fetch = AsyncMock(return_value=mock_response)
+
+            from hedge.transport._base import HedgeScheduler
+
+            client._scheduler = HedgeScheduler(config)
+
+            await client.fetch("https://api.example.com/fast-lookup")
+            await client.fetch("https://api.example.com/bulk-export")
+
+            keys = set(client._scheduler._sketches)
+            assert keys == {
+                "api.example.com /fast-lookup",
+                "api.example.com /bulk-export",
+            }
+            await client._scheduler.close()
+
+    async def test_host_mode_pooled_sketch(self) -> None:
+        config = HedgeConfig(warmup_requests=0, warmup_delay=0.001)
+        mock_response = _make_tornado_response()
+
+        with patch.object(HedgedTornadoClient, "__init__", lambda self, **kw: None):
+            client = HedgedTornadoClient.__new__(HedgedTornadoClient)
+            client._config = config
+            client._raise_error = True
+            client._owns_client = False
+            client._client = AsyncMock()
+            client._client.fetch = AsyncMock(return_value=mock_response)
+
+            from hedge.transport._base import HedgeScheduler
+
+            client._scheduler = HedgeScheduler(config)
+
+            await client.fetch("https://api.example.com/fast-lookup")
+            await client.fetch("https://api.example.com/bulk-export")
+
+            assert set(client._scheduler._sketches) == {"api.example.com"}
+            await client._scheduler.close()

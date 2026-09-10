@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-10
+
+### Added
+
+- **Per-endpoint latency profiles**: `key_level="endpoint"` on `HedgeConfig`
+  keys the DDSketch and warmup counters by `host + path` instead of by host,
+  so endpoints with different latency profiles on the same host no longer
+  skew each other's p90 estimates ([#2](https://github.com/sunhailin-Leo/hedge-python/issues/2)).
+  Works across all HTTP transports (httpx, aiohttp, niquests, tornado); the
+  client, its connection pool, and the token-bucket budget stay shared —
+  no `mounts={...}` with one connection pool per route needed. Query strings
+  and fragments are excluded from the key to keep cardinality low.
+- `HedgeConfig` now validates `key_level` in `__post_init__` (invalid values
+  raise `ValueError`).
+- `extract_key(url, key_level)` helper in `hedge.transport._base` computing
+  the latency-profile key for a URL; new framework transports only need to
+  call this one helper.
+- New example `examples/httpx_endpoint_profiles.py` (self-contained — no
+  network needed), plus per-endpoint tests for every transport and gRPC
+  per-method regression tests locking in the interceptor's
+  already-endpoint-level keying.
+
+### Changed
+
+- `HedgeScheduler` methods now take a `key` argument (host or endpoint key)
+  where they previously took `host`. These are internal building blocks;
+  the public API (`HedgeConfig`, transports, interceptors) is unchanged and
+  the default behavior (`key_level="host"`) is fully backward compatible.
+
+### Other
+
+- Test coverage: **99%** (190 tests).
+- CI: Windows-friendly timing assertions (accommodates the ~15ms
+  `asyncio.sleep` precision on Windows runners).
+
 ## [0.2.0] - 2026-06-12
 
 ### Added

@@ -335,3 +335,55 @@ class TestServerStreamInterceptorBranches:
             stream = await interceptor.intercept_unary_stream(continuation, _make_call_details(), object())
             first = await stream.__anext__()
         assert first == "hedge-first"
+
+
+@pytest.mark.asyncio
+class TestPerMethodSketches:
+    async def test_unary_methods_tracked_independently(self) -> None:
+        """gRPC latency is already keyed by RPC method — the endpoint-level
+        equivalent of ``HedgeConfig(key_level="endpoint")`` on HTTP transports.
+        Locks that behavior in so it does not regress (issue #2)."""
+        config = HedgeConfig(warmup_requests=0, warmup_delay=0.001, min_delay=0.001)
+        interceptor = HedgedUnaryInterceptor(config=config)
+
+        async def continuation(_details: Any, _request: Any) -> _FakeUnaryCall:
+            return _FakeUnaryCall(response="ok", delay=0.001)
+
+        class _FastDetails:
+            method = "/Fake/FastLookup"
+
+        class _SlowDetails:
+            method = "/Fake/BulkExport"
+
+        await interceptor.intercept_unary_unary(continuation, _FastDetails(), object())
+        await interceptor.intercept_unary_unary(continuation, _SlowDetails(), object())
+
+        assert set(interceptor._sketches) == {"/Fake/FastLookup", "/Fake/BulkExport"}
+
+        for sketch in interceptor._sketches.values():
+            sketch.stop()
+
+    async def test_stream_methods_tracked_independently(self) -> None:
+        """Server-streaming interceptor also keys sketches by RPC method."""
+        config = HedgeConfig(warmup_requests=0, warmup_delay=0.001, min_delay=0.001)
+        interceptor = HedgedServerStreamInterceptor(config=config)
+
+        async def continuation(_details: Any, _request: Any) -> _FakeStreamCall:
+            return _FakeStreamCall(first_msg="msg", delay=0.001)
+
+        class _FastDetails:
+            method = "/Fake/FastLookup"
+
+        class _SlowDetails:
+            method = "/Fake/BulkExport"
+
+        stream_a = await interceptor.intercept_unary_stream(continuation, _FastDetails(), object())
+        stream_b = await interceptor.intercept_unary_stream(continuation, _SlowDetails(), object())
+        # Consume the first message so the tasks finish cleanly.
+        await stream_a.__anext__()
+        await stream_b.__anext__()
+
+        assert set(interceptor._sketches) == {"/Fake/FastLookup", "/Fake/BulkExport"}
+
+        for sketch in interceptor._sketches.values():
+            sketch.stop()

@@ -3,7 +3,7 @@
 [English](README.md) | **简体中文** | [日本語](README.ja.md)
 
 [![CI](https://github.com/sunhailin-Leo/hedge-python/actions/workflows/ci.yml/badge.svg)](https://github.com/sunhailin-Leo/hedge-python/actions)
-[![Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen.svg)](#测试)
+[![Coverage](https://img.shields.io/badge/coverage-99%25-brightgreen.svg)](#测试)
 [![Python](https://img.shields.io/badge/python-3.9%E2%80%933.14-blue.svg)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -11,7 +11,7 @@
 
 [bhope/hedge](https://github.com/bhope/hedge) 的 Python 移植版本 —— **面向尾延迟优化的自适应对冲请求库**。
 
-`hedge-python` 使用 [DDSketch](https://arxiv.org/abs/2004.08604) 学习每个目标主机的延迟分布，当主请求超过估算的 p90 时立即发起备份请求，并通过令牌桶限制对冲速率，避免在故障期间放大流量。**零配置开箱即用**，原生支持 **httpx**、**aiohttp**、**niquests**、**tornado** 和 **gRPC**（unary + server-streaming）。同时支持通过 `http_client` 参数无缝集成 **OpenAI Python SDK**。
+`hedge-python` 使用 [DDSketch](https://arxiv.org/abs/2004.08604) 学习每个目标主机（可选升级为[按端点](#按端点延迟画像per-endpoint-latency-profiles)）的延迟分布，当主请求超过估算的 p90 时立即发起备份请求，并通过令牌桶限制对冲速率，避免在故障期间放大流量。**零配置开箱即用**，原生支持 **httpx**、**aiohttp**、**niquests**、**tornado** 和 **gRPC**（unary + server-streaming）。同时支持通过 `http_client` 参数无缝集成 **OpenAI Python SDK**。
 
 灵感来自 Dean & Barroso 的 [_The Tail at Scale_](https://research.google/pubs/the-tail-at-scale/)（CACM 2013）。
 
@@ -170,7 +170,7 @@ client = AsyncOpenAI(
 
 ### 1. DDSketch 分位数估计器
 
-每个目标主机持有一个 `WindowedSketch` —— 由两个 DDSketch 组成、每 30 秒轮换。DDSketch 通过对数分桶映射提供 **相对误差保证**：任意分位数估计与真实值的偏差 ≤ ±1%，与底层分布无关。
+每个目标 —— 默认按主机，或设置 [`key_level="endpoint"`](#按端点延迟画像per-endpoint-latency-profiles) 后按主机+路径 —— 持有一个 `WindowedSketch` —— 由两个 DDSketch 组成、每 30 秒轮换。DDSketch 通过对数分桶映射提供 **相对误差保证**：任意分位数估计与真实值的偏差 ≤ ±1%，与底层分布无关。
 
 ### 2. 自适应触发
 
@@ -192,6 +192,26 @@ gRPC 的 `intercept_unary_unary` continuation 几乎立即返回 `Call` 对象�
 
 ---
 
+## 按端点延迟画像（Per-endpoint latency profiles）
+
+默认情况下 sketch 按主机（host）键控，同一主机上的所有端点共享同一个 p90 估计。当同一主机上的端点延迟差异巨大时这并不合适：对慢端点 `/bulk-export`（~900ms）的少量调用会拉高共享估计，导致快速端点 `/fast-lookup`（~10ms）触发对冲时为时过晚（见 [issue #2](https://github.com/sunhailin-Leo/hedge-python/issues/2)）。
+
+设置 `key_level="endpoint"` 后，sketch（以及预热计数器）按 `主机 + 路径` 键控。每个端点学习自己的 p90，而客户端、其连接池和令牌桶预算仍然全局共享 —— 无需使用 `mounts={...}` 为每个路由单独建一个 transport（和连接池）：
+
+```python
+config = HedgeConfig(key_level="endpoint")
+transport = HedgedHttpxTransport(config=config)
+async with httpx.AsyncClient(transport=transport) as client:
+    await client.get("https://api.example.com/fast-lookup")  # 学习到 ~10ms p90
+    await client.get("https://api.example.com/bulk-export")  # 学习到 ~900ms p90
+```
+
+查询字符串不参与端点键的计算。该选项在所有 HTTP 传输层（**httpx**、**aiohttp**、**niquests**、**tornado**）上均可用；gRPC 拦截器本身就按 RPC method 维度学习延迟 —— 即 gRPC 天然的端点级粒度。可运行示例见 [`examples/httpx_endpoint_profiles.py`](examples/httpx_endpoint_profiles.py)。
+
+> **基数提示**：端点键即原始路径。路径中嵌入 ID（`/users/123`）时，每个不同路径都会创建一个 sketch。此类 API 建议使用稳定路径，或保持 `key_level="host"`。
+
+---
+
 ## 配置项
 
 所有参数都在 `HedgeConfig` 上：
@@ -206,6 +226,7 @@ gRPC 的 `intercept_unary_unary` continuation 几乎立即返回 `Call` 对象�
 | `warmup_requests` | `int` | `20` | 使用固定延迟的预热请求数 |
 | `warmup_delay` | `float` | `0.01` | 预热阶段的固定对冲延迟（秒） |
 | `window_duration` | `float` | `30.0` | sketch 窗口轮换周期（秒） |
+| `key_level` | `str` | `"host"` | 延迟画像粒度：`"host"`（每主机一个 sketch）或 `"endpoint"`（每主机+路径一个 sketch） |
 | `stats` | `Stats \| None` | `None` | 注入自定义 `Stats` 用于可观测性 |
 
 > **`estimated_rps` 调参建议**：选择接近真实 QPS 的值，令牌桶容量（`rps × budget_percent / 100`）才有意义。不确定时从默认 `100.0` 开始，观察 stats 快照的 `hedge_rate` / `budget_exhausted`。
@@ -259,7 +280,7 @@ make typecheck          # mypy
 make test               # 全部测试
 make test-unit          # 仅单元测试
 make test-integration   # 集成测试（需 httpx / aiohttp / grpcio）
-make coverage           # 覆盖率报告（当前 97%）
+make coverage           # 覆盖率报告（当前 99%）
 make bench-multi        # 多框架基准测试
 make bench-plot         # 渲染图表
 make ci                 # lint + typecheck + test + coverage
@@ -271,7 +292,7 @@ make ci                 # lint + typecheck + test + coverage
 * **集成测试** (`tests/integration/`)：真实 httpx transport、真实 aiohttp session、**真实本地 gRPC server**（含 `.proto` 与生成的 pb2）。
 * **基准测试** (`tests/benchmark/`)：DDSketch 微基准、令牌桶微基准、四配置对比、三框架对比。
 
-当前覆盖率：**97%**（150 个测试，约 7 秒）。
+当前覆盖率：**99%**（190 个测试，约 8 秒）。
 
 ---
 

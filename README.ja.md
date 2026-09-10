@@ -3,7 +3,7 @@
 [English](README.md) | [简体中文](README.zh-CN.md) | **日本語**
 
 [![CI](https://github.com/sunhailin-Leo/hedge-python/actions/workflows/ci.yml/badge.svg)](https://github.com/sunhailin-Leo/hedge-python/actions)
-[![Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen.svg)](#テスト)
+[![Coverage](https://img.shields.io/badge/coverage-99%25-brightgreen.svg)](#テスト)
 [![Python](https://img.shields.io/badge/python-3.9%E2%80%933.14-blue.svg)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -12,7 +12,8 @@
 [bhope/hedge](https://github.com/bhope/hedge) の Python 移植版 ——
 **テールレイテンシ最適化のための適応型ヘッジリクエストライブラリ** です。
 
-`hedge-python` は [DDSketch](https://arxiv.org/abs/2004.08604) を用いてホストごとのレイテンシ分布を学習し、
+`hedge-python` は [DDSketch](https://arxiv.org/abs/2004.08604) を用いてホストごと（オプションで
+[エンドポイントごと](#エンドポイントごとのレイテンシプロファイルper-endpoint-latency-profiles)）のレイテンシ分布を学習し、
 プライマリリクエストが推定 p90 を超えた時点でバックアップリクエストを発射、
 さらにトークンバケットでヘッジレートを制限することで、障害時の負荷増幅を防ぎます。
 **設定不要** で、**httpx**、**aiohttp**、**niquests**、**tornado**、**gRPC**（unary + server-streaming）を第一級でサポートします。
@@ -188,7 +189,7 @@ server-streaming におけるヘッジ信号は **TTFM（Time To First Message�
 
 ### 1. DDSketch 分位点推定器
 
-ターゲットホストごとに `WindowedSketch`（30 秒ごとにローテートする 2 つの DDSketch）を保持します。
+ターゲットごと（既定はホスト単位、[`key_level="endpoint"`](#エンドポイントごとのレイテンシプロファイルper-endpoint-latency-profiles) 設定時はホスト+パス単位）に `WindowedSketch`（30 秒ごとにローテートする 2 つの DDSketch）を保持します。
 DDSketch は対数バケットマッピングにより **相対誤差保証** を提供 —— 任意の分位点推定値は真値の ±1% 以内に収まり、これは元の分布形状に依存しません。
 
 ### 2. 適応的トリガ
@@ -216,6 +217,35 @@ gRPC の `intercept_unary_unary` continuation はほぼ即座に `Call` オブ�
 
 ---
 
+## エンドポイントごとのレイテンシプロファイル（Per-endpoint latency profiles）
+
+既定では sketch はホスト単位でキーイングされ、同一ホスト上の全エンドポイントが単一の p90 推定値を共有します。
+同一ホスト上のエンドポイントでレイテンシが大きく異なる場合、これは不適切です。
+例えば、遅い `/bulk-export`（~900ms）へのわずかな呼び出しが共通の推定値を押し上げ、
+速い `/fast-lookup`（~10ms）のヘッジ発射タイミングが大きく遅れてしまいます（[issue #2](https://github.com/sunhailin-Leo/hedge-python/issues/2) を参照）。
+
+`key_level="endpoint"` を設定すると、sketch（およびウォームアップカウンタ）が `ホスト + パス` 単位でキーイングされます。
+各エンドポイントは自分自身の p90 を学習しますが、クライアント、その接続プール、トークンバケット予算は引き続き共有されます。
+ルートごとに別 transport（と接続プール）を用意する `mounts={...}` の回避策は不要です:
+
+```python
+config = HedgeConfig(key_level="endpoint")
+transport = HedgedHttpxTransport(config=config)
+async with httpx.AsyncClient(transport=transport) as client:
+    await client.get("https://api.example.com/fast-lookup")  # ~10ms の p90 を学習
+    await client.get("https://api.example.com/bulk-export")  # ~900ms の p90 を学習
+```
+
+クエリ文字列はエンドポイントキーに含まれません。
+このオプションは全 HTTP トランスポート（**httpx**、**aiohttp**、**niquests**、**tornado**）で利用できます。
+gRPC インターセプタは当初から RPC メソッド単位 —— gRPC におけるエンドポイント相当 —— でレイテンシを学習する設計です。
+実行可能なデモは [`examples/httpx_endpoint_profiles.py`](examples/httpx_endpoint_profiles.py) を参照してください。
+
+> **カーディナリティに関する注意**: エンドポイントキーは生のパスです。パスに ID が埋め込まれる（`/users/123`）場合、異なるパスごとに sketch が 1 つ作られます。
+> そのような API では安定したパスを使うか、`key_level="host"` のままにしてください。
+
+---
+
 ## 設定
 
 すべてのパラメータは `HedgeConfig` 上にあります:
@@ -230,6 +260,7 @@ gRPC の `intercept_unary_unary` continuation はほぼ即座に `Call` オブ�
 | `warmup_requests` | `int` | `20` | 固定遅延を使うウォームアップリクエスト数 |
 | `warmup_delay` | `float` | `0.01` | ウォームアップ中の固定ヘッジ遅延（秒） |
 | `window_duration` | `float` | `30.0` | sketch ウィンドウのローテーション周期（秒） |
+| `key_level` | `str` | `"host"` | レイテンシプロファイルの粒度: `"host"`（ホストごとに 1 つの sketch）または `"endpoint"`（ホスト+パスごとに 1 つの sketch） |
 | `stats` | `Stats \| None` | `None` | 観測用にカスタム `Stats` を注入 |
 
 > **`estimated_rps` 調整のヒント**: 実際の RPS に近い値を選ぶと、トークンバケット容量（`rps × budget_percent / 100`）が意味を持ちます。
@@ -284,7 +315,7 @@ make typecheck          # mypy
 make test               # 全テスト
 make test-unit          # ユニットテストのみ
 make test-integration   # 結合テスト（httpx / aiohttp / grpcio が必要）
-make coverage           # カバレッジレポート（現在 97%）
+make coverage           # カバレッジレポート（現在 99%）
 make bench-multi        # マルチフレームワークベンチ
 make bench-plot         # チャート描画
 make ci                 # lint + typecheck + test + coverage
@@ -296,7 +327,7 @@ make ci                 # lint + typecheck + test + coverage
 * **結合テスト** (`tests/integration/`): 実 httpx transport、実 aiohttp session、**実ローカル gRPC サーバ**（`.proto` + 生成 pb2 込み）。
 * **ベンチマーク** (`tests/benchmark/`): DDSketch マイクロベンチ、トークンバケットマイクロベンチ、4 構成比較、3 フレームワーク比較。
 
-現在のカバレッジ: **97%**（150 テスト、約 7 秒）。
+現在のカバレッジ: **99%**（190 テスト、約 8 秒）。
 
 ---
 
